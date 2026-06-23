@@ -329,6 +329,23 @@ def build_prompt(job: dict, tailored_resume: str,
             shutil.copy(str(cl_pdf_src), str(cl_upload))
             cl_upload_path = str(cl_upload)
 
+    edu_list = profile.get("education", [])
+    edu = edu_list[0] if edu_list else {}
+    edu_start_year = str(edu.get("start_year", "2025"))
+    edu_end_year = str(edu.get("end_year", "2029"))
+    edu_start_month = str(edu.get("start_month", "9"))
+    edu_end_month = str(edu.get("end_month", "4"))
+    edu_end_month_name = {
+        "1": "January", "2": "February", "3": "March", "4": "April",
+        "5": "May", "6": "June", "7": "July", "8": "August",
+        "9": "September", "10": "October", "11": "November", "12": "December",
+    }.get(edu_end_month, "April")
+    edu_start_month_name = {
+        "1": "January", "2": "February", "3": "March", "4": "April",
+        "5": "May", "6": "June", "7": "July", "8": "August",
+        "9": "September", "10": "October", "11": "November", "12": "December",
+    }.get(edu_start_month, "September")
+
     profile_summary = _build_profile_summary(profile)
     location_check = _build_location_check(profile, search_config)
     salary_section = _build_salary_section(profile)
@@ -484,15 +501,15 @@ browser_evaluate: () => {{
   const selects = document.querySelectorAll('select');
   selects.forEach(s => {{
     const label = (s.getAttribute('aria-label') || s.id || '').toLowerCase();
-    if (label.includes('start') && label.includes('month')) {{ s.value = Array.from(s.options).find(o => o.text.includes('September') || o.text === '9' || o.value === '9')?.value || '9'; s.dispatchEvent(new Event('change', {{bubbles:true}})); }}
-    if (label.includes('start') && label.includes('year')) {{ s.value = '2025'; s.dispatchEvent(new Event('change', {{bubbles:true}})); }}
-    if ((label.includes('end') || label.includes('projected') || label.includes('completion') || label.includes('graduation')) && label.includes('month')) {{ s.value = Array.from(s.options).find(o => o.text.includes('April') || o.text === '4' || o.value === '4')?.value || '4'; s.dispatchEvent(new Event('change', {{bubbles:true}})); }}
-    if ((label.includes('end') || label.includes('projected') || label.includes('completion') || label.includes('graduation')) && label.includes('year')) {{ s.value = '2029'; s.dispatchEvent(new Event('change', {{bubbles:true}})); }}
+    if (label.includes('start') && label.includes('month')) {{ s.value = Array.from(s.options).find(o => o.text.includes('{edu_start_month_name}') || o.text === '{edu_start_month}' || o.value === '{edu_start_month}')?.value || '{edu_start_month}'; s.dispatchEvent(new Event('change', {{bubbles:true}})); }}
+    if (label.includes('start') && label.includes('year')) {{ s.value = '{edu_start_year}'; s.dispatchEvent(new Event('change', {{bubbles:true}})); }}
+    if ((label.includes('end') || label.includes('projected') || label.includes('completion') || label.includes('graduation')) && label.includes('month')) {{ s.value = Array.from(s.options).find(o => o.text.includes('{edu_end_month_name}') || o.text === '{edu_end_month}' || o.value === '{edu_end_month}')?.value || '{edu_end_month}'; s.dispatchEvent(new Event('change', {{bubbles:true}})); }}
+    if ((label.includes('end') || label.includes('projected') || label.includes('completion') || label.includes('graduation')) && label.includes('year')) {{ s.value = '{edu_end_year}'; s.dispatchEvent(new Event('change', {{bubbles:true}})); }}
   }});
   return 'done';
 }}
 Run this JS before trying manual clicks on date fields. Then snapshot to verify. Only fall back to manual clicks if JS had no effect.
-Graduation/completion = April 2029. Start = September 2025.
+Graduation/completion = {edu_end_month_name} {edu_end_year}. Start = {edu_start_month_name} {edu_start_year}.
 - Job closed/expired -> RESULT:EXPIRED
 - Page broken/500 -> RESULT:FAILED:page_error"""
 
