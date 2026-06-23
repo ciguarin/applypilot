@@ -60,19 +60,20 @@ _UPSTREAM: dict[str, str | None] = {
 # ---------------------------------------------------------------------------
 
 def _run_discover(workers: int = 1) -> dict:
-    """Stage: Job discovery — JobSpy, Workday, and smart-extract scrapers."""
-    stats: dict = {"jobspy": None, "workday": None, "smartextract": None}
+    """Stage: Job discovery — GitHub README, Workday, and smart-extract scrapers."""
+    stats: dict = {"github_readme": None, "workday": None, "smartextract": None}
 
-    # JobSpy
-    console.print("  [cyan]JobSpy full crawl...[/cyan]")
+    # GitHub README — curated Canadian internship lists
+    console.print("  [cyan]GitHub README discovery...[/cyan]")
     try:
-        from applypilot.discovery.jobspy import run_discovery
-        run_discovery()
-        stats["jobspy"] = "ok"
+        from applypilot.discovery.github_readme import run_github_readme_discovery
+        result = run_github_readme_discovery()
+        console.print(f"  [green]GitHub README:[/green] {result['inserted']} new, {result['pruned']} pruned")
+        stats["github_readme"] = "ok"
     except Exception as e:
-        log.error("JobSpy crawl failed: %s", e)
-        console.print(f"  [red]JobSpy error:[/red] {e}")
-        stats["jobspy"] = f"error: {e}"
+        log.error("GitHub README discovery failed: %s", e)
+        console.print(f"  [red]GitHub README error:[/red] {e}")
+        stats["github_readme"] = f"error: {e}"
 
     # Workday corporate scraper
     console.print("  [cyan]Workday corporate scraper...[/cyan]")

@@ -63,12 +63,12 @@ FABRICATION_WATCHLIST: set[str] = {
     "c#", "c++", "golang", "rust", "ruby",
     "kotlin", "swift", "scala", "matlab",
     # Frameworks for wrong languages
-    "spring", "django", "rails", "angular", "vue", "svelte",
+    "django", "rails", "angular", "vue", "svelte",
     # Hard lies: certifications can't be stretched
     "certif", "certified", "pmp", "scrum master", "aws certified",
 }
 
-REQUIRED_SECTIONS: set[str] = {"SUMMARY", "TECHNICAL SKILLS", "EXPERIENCE", "PROJECTS", "EDUCATION"}
+REQUIRED_SECTIONS: set[str] = {"TECHNICAL SKILLS", "EXPERIENCE", "PROJECTS", "EDUCATION"}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────
@@ -114,14 +114,16 @@ def validate_json_fields(data: dict, profile: dict, mode: str = "normal") -> dic
     warnings: list[str] = []
 
     # Required keys — always checked regardless of mode
-    for key in ("title", "summary", "skills", "experience", "projects", "education"):
+    for key in ("title", "skills", "experience", "projects", "education"):
         if key not in data or not data[key]:
             errors.append(f"Missing required field: {key}")
     if errors:
         return {"passed": False, "errors": errors, "warnings": warnings}
 
-    # Collect all text for bulk checks
-    all_text_parts: list[str] = [data["summary"]]
+    # Collect all text for bulk checks (summary is optional — no summary on resume)
+    all_text_parts: list[str] = []
+    if data.get("summary"):
+        all_text_parts.append(data["summary"])
 
     # Skills: check for fabrication (always enforced)
     if isinstance(data["skills"], dict):
@@ -139,7 +141,8 @@ def validate_json_fields(data: dict, profile: dict, mode: str = "normal") -> dic
     if isinstance(data["experience"], list):
         for company in preserved_companies:
             has_company = any(
-                company.lower() in str(e.get("header", "")).lower()
+                company.lower() in str(e.get("header", "")).lower() or
+                company.lower() in str(e.get("subtitle", "")).lower()
                 for e in data["experience"]
             )
             if not has_company:
@@ -204,7 +207,6 @@ def validate_tailored_resume(text: str, profile: dict, original_text: str = "") 
 
     # 1. Check required sections exist (flexible matching)
     section_variants: dict[str, list[str]] = {
-        "SUMMARY": ["summary", "professional summary", "profile"],
         "TECHNICAL SKILLS": ["technical skills", "skills", "tech stack", "core skills", "technologies"],
         "EXPERIENCE": ["experience", "work experience", "professional experience"],
         "PROJECTS": ["projects", "personal projects", "key projects", "selected projects"],

@@ -4,10 +4,16 @@ Parses the structured text resume format, renders via an HTML/CSS template,
 and exports to PDF using headless Chromium via Playwright.
 """
 
+import json
 import logging
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from applypilot.config import TAILORED_DIR
+
+RESUMAKE_API = "https://latexresu.me/api/generate/resume"
+RESUMAKE_TEMPLATE = 3
 
 log = logging.getLogger(__name__)
 
@@ -353,6 +359,126 @@ def render_pdf(html: str, output_path: str) -> None:
             print_background=True,
         )
         browser.close()
+
+
+# ── Resumake Integration ─────────────────────────────────────────────────
+
+def _parse_work_header(header: str) -> tuple[str, str]:
+    parts = header.rsplit(" at ", 1)
+    return (parts[0].strip(), parts[1].strip()) if len(parts) == 2 else (header.strip(), "")
+
+
+def _parse_subtitle_dates(subtitle: str) -> tuple[str, str, str]:
+    """Return (tech, start_date, end_date) from 'Tech | Start | End' or 'Tech | Start - End'."""
+    if " | " not in subtitle:
+        return subtitle.strip(), "", ""
+    tech, date_str = subtitle.split(" | ", 1)
+    date_str = date_str.strip()
+    if " | " in date_str:
+        parts = date_str.split(" | ", 1)
+    elif " - " in date_str:
+        parts = date_str.split(" - ", 1)
+    else:
+        parts = [date_str, ""]
+    return tech.strip(), parts[0].strip(), (parts[1].strip() if len(parts) > 1 else "")
+
+
+def _parse_project_header(header: str) -> tuple[str, str]:
+    parts = header.split(" - ", 1)
+    return (parts[0].strip(), parts[1].strip()) if len(parts) == 2 else (header.strip(), "")
+
+
+def map_to_resumake(data: dict, profile: dict, template: int = RESUMAKE_TEMPLATE) -> dict:
+    """Convert ApplyPilot LLM JSON output to the resumake API request schema."""
+    personal = profile.get("personal", {})
+    resume_facts = profile.get("resume_facts", {})
+
+    skills = []
+    if isinstance(data.get("skills"), dict):
+        for cat, val in data["skills"].items():
+            keywords = [k.strip() for k in str(val).split(",") if k.strip()]
+            skills.append({"name": cat, "keywords": keywords})
+
+    work = []
+    for entry in data.get("experience", []):
+        position, company = _parse_work_header(entry.get("header", ""))
+        tech, start, end = _parse_subtitle_dates(entry.get("subtitle", ""))
+        work.append({
+            "company": company,
+            "position": position,
+            "location": "",
+            "startDate": start,
+            "endDate": end or "Present",
+            "highlights": entry.get("bullets", []),
+        })
+
+    projects = []
+    for entry in data.get("projects", []):
+        name, description = _parse_project_header(entry.get("header", ""))
+        tech, start, end = _parse_subtitle_dates(entry.get("subtitle", ""))
+        keywords = [k.strip() for k in tech.split(",") if k.strip()] if tech else []
+        projects.append({
+            "name": name,
+            "description": description,
+            "keywords": keywords,
+            "highlights": entry.get("bullets", []),
+        })
+
+    education = [{
+        "institution": resume_facts.get("preserved_school", ""),
+        "area": resume_facts.get("degree", profile.get("experience", {}).get("education_level", "")),
+        "studyType": "",
+        "startDate": "",
+        "endDate": resume_facts.get("graduation_year", ""),
+        "gpa": resume_facts.get("gpa", ""),
+    }]
+
+    return {
+        "selectedTemplate": template,
+        "headings": {
+            "work": "Experience",
+            "education": "Education",
+            "skills": "Technical Skills",
+            "projects": "Projects",
+        },
+        "basics": {
+            "name": personal.get("full_name", ""),
+            "email": personal.get("email", ""),
+            "phone": personal.get("phone", ""),
+            "website": personal.get("github_url", ""),
+            "location": {"address": f"{personal.get('city', '')}, {personal.get('province_state', '')}"},
+        },
+        "work": work,
+        "skills": skills,
+        "projects": projects,
+        "education": education,
+        "awards": [],
+        "sections": ["templates", "profile", "work", "skills", "projects", "education"],
+    }
+
+
+def convert_resume_json_to_pdf(data: dict, profile: dict, output_path: Path) -> Path:
+    """POST ApplyPilot LLM JSON to the resumake API and write the returned PDF."""
+    payload = map_to_resumake(data, profile)
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        RESUMAKE_API,
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 ApplyPilot/1.0",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        content_type = resp.headers.get("Content-Type", "")
+        if "pdf" not in content_type:
+            raise RuntimeError(f"resumake returned {content_type}, expected PDF")
+        pdf_bytes = resp.read()
+    output_path = Path(output_path)
+    output_path.write_bytes(pdf_bytes)
+    log.info("PDF generated via resumake (template %d): %s", RESUMAKE_TEMPLATE, output_path)
+    return output_path
 
 
 # ── Public API ───────────────────────────────────────────────────────────

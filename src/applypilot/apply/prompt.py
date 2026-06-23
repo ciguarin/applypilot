@@ -1,9 +1,4 @@
-"""Prompt builder for the autonomous job application agent.
-
-Constructs the full instruction prompt that tells Claude Code / the AI agent
-how to fill out a job application form using Playwright MCP tools. All
-personal data is loaded from the user's profile -- nothing is hardcoded.
-"""
+"""Prompt builder for the autonomous job application agent."""
 
 import logging
 import os
@@ -17,11 +12,6 @@ logger = logging.getLogger(__name__)
 
 
 def _build_profile_summary(profile: dict) -> str:
-    """Format the applicant profile section of the prompt.
-
-    Reads all relevant fields from the profile dict and returns a
-    human-readable multi-line summary for the agent.
-    """
     p = profile
     personal = p["personal"]
     work_auth = p["work_authorization"]
@@ -36,7 +26,6 @@ def _build_profile_summary(profile: dict) -> str:
         f"Phone: {personal['phone']}",
     ]
 
-    # Address -- handle optional fields gracefully
     addr_parts = [
         personal.get("address", ""),
         personal.get("city", ""),
@@ -55,35 +44,38 @@ def _build_profile_summary(profile: dict) -> str:
     if personal.get("website_url"):
         lines.append(f"Website: {personal['website_url']}")
 
-    # Work authorization
     lines.append(f"Work Auth: {work_auth.get('legally_authorized_to_work', 'See profile')}")
     lines.append(f"Sponsorship Needed: {work_auth.get('require_sponsorship', 'See profile')}")
     if work_auth.get("work_permit_type"):
         lines.append(f"Work Permit: {work_auth['work_permit_type']}")
 
-    # Compensation
     currency = comp.get("salary_currency", "USD")
     lines.append(f"Salary Expectation: ${comp['salary_expectation']} {currency}")
 
-    # Experience
     if exp.get("years_of_experience_total"):
         lines.append(f"Years Experience: {exp['years_of_experience_total']}")
-    if exp.get("education_level"):
+
+    edu_list = p.get("education", [])
+    if edu_list:
+        edu = edu_list[0]
+        status = " (In Progress)" if edu.get("in_progress") else f", Graduated {edu.get('end_year', '')}"
+        lines.append(
+            f"Education: {edu['degree']} in {edu['field_of_study']}, "
+            f"{edu['institution']}, {edu.get('start_year', '')}–{edu.get('end_year', '')}{status}"
+        )
+        if edu.get("gpa"):
+            lines.append(f"GPA: {edu['gpa']}")
+        if edu.get("in_progress") and edu.get("end_year"):
+            lines.append(f"Projected Completion: April {edu['end_year']} (use Month=April, Year={edu['end_year']} for date pickers)")
+    elif exp.get("education_level"):
         lines.append(f"Education: {exp['education_level']}")
 
-    # Availability
     lines.append(f"Available: {avail.get('earliest_start_date', 'Immediately')}")
-
-    # Standard responses
     lines.extend([
-        "Age 18+: Yes",
-        "Background Check: Yes",
-        "Felony: No",
-        "Previously Worked Here: No",
-        "How Heard: Online Job Board",
+        "Age 18+: Yes", "Background Check: Yes", "Felony: No",
+        "Previously Worked Here: No", "How Heard: Online Job Board",
     ])
 
-    # EEO
     lines.append(f"Gender: {eeo.get('gender', 'Decline to self-identify')}")
     lines.append(f"Race: {eeo.get('race_ethnicity', 'Decline to self-identify')}")
     lines.append(f"Veteran: {eeo.get('veteran_status', 'I am not a protected veteran')}")
@@ -93,17 +85,11 @@ def _build_profile_summary(profile: dict) -> str:
 
 
 def _build_location_check(profile: dict, search_config: dict) -> str:
-    """Build the location eligibility check section of the prompt.
-
-    Uses the accept_patterns from search config to determine which cities
-    are acceptable for hybrid/onsite roles.
-    """
     personal = profile["personal"]
     location_cfg = search_config.get("location", {})
     accept_patterns = location_cfg.get("accept_patterns", [])
     primary_city = personal.get("city", location_cfg.get("primary", "your city"))
 
-    # Build the list of acceptable cities for hybrid/onsite
     if accept_patterns:
         city_list = ", ".join(accept_patterns)
     else:
@@ -121,10 +107,6 @@ Do NOT fill out forms for jobs that are clearly onsite in a non-acceptable locat
 
 
 def _build_salary_section(profile: dict) -> str:
-    """Build the salary negotiation instructions.
-
-    Adapts floor, range, and currency from the profile's compensation section.
-    """
     comp = profile["compensation"]
     currency = comp.get("salary_currency", "USD")
     floor = comp["salary_expectation"]
@@ -132,7 +114,6 @@ def _build_salary_section(profile: dict) -> str:
     range_max = comp.get("salary_range_max", str(int(floor) + 20000) if floor.isdigit() else floor)
     conversion_note = comp.get("currency_conversion_note", "")
 
-    # Compute example hourly rates at 3 salary levels
     try:
         floor_int = int(floor)
         examples = [
@@ -144,26 +125,22 @@ def _build_salary_section(profile: dict) -> str:
     except (ValueError, TypeError):
         hourly_line = "Divide annual salary by 2080"
 
-    # Currency conversion guidance
     if conversion_note:
         convert_line = f"Posting is in a different currency? -> {conversion_note}"
     else:
         convert_line = "Posting is in a different currency? -> Target midpoint of their range. Convert if needed."
 
     return f"""== SALARY (think, don't just copy) ==
-${floor} {currency} is the FLOOR. Never go below it. But don't always use it either.
-
-Decision tree:
-1. Job posting shows a range (e.g. "$120K-$160K")? -> Answer with the MIDPOINT ($140K).
-2. Title says Senior, Staff, Lead, Principal, Architect, or level II/III/IV? -> Minimum $110K {currency}. Use midpoint of posted range if higher.
+${floor} {currency} is the FLOOR. Never go below it.
+1. Job posting shows a range? -> Answer with the MIDPOINT.
+2. Senior/Staff/Lead/Principal/Architect/level II+? -> Min $110K {currency} or posted midpoint if higher.
 3. {convert_line}
-4. No salary info anywhere? -> Use ${floor} {currency}.
-5. Asked for a range? -> Give posted midpoint minus 10% to midpoint plus 10%. No posted range? -> "${range_min}-${range_max} {currency}".
-6. Hourly rate? -> Divide your annual answer by 2080. ({hourly_line})"""
+4. No salary info? -> Use ${floor} {currency}.
+5. Asked for a range? -> Midpoint ±10%. No posted range? -> "${range_min}-${range_max} {currency}".
+6. Hourly rate? -> Annual ÷ 2080. ({hourly_line})"""
 
 
 def _build_screening_section(profile: dict) -> str:
-    """Build the screening questions guidance section."""
     personal = profile["personal"]
     exp = profile.get("experience", {})
     city = personal.get("city", "their city")
@@ -171,275 +148,148 @@ def _build_screening_section(profile: dict) -> str:
     target_role = exp.get("target_role", personal.get("current_job_title", "software engineer"))
     work_auth = profile["work_authorization"]
 
-    return f"""== SCREENING QUESTIONS (be strategic) ==
-Hard facts -> answer truthfully from the profile. No guessing. This includes:
-  - Location/relocation: lives in {city}, cannot relocate
-  - Work authorization: {work_auth.get('legally_authorized_to_work', 'see profile')}
-  - Citizenship, clearance, licenses, certifications: answer from profile only
-  - Criminal/background: answer from profile only
-
-Skills and tools -> be confident. This candidate is a {target_role} with {years} years experience. If the question asks "Do you have experience with [tool]?" and it's in the same domain (DevOps, backend, ML, cloud, automation), answer YES. Software engineers learn tools fast. Don't sell short.
-
-Open-ended questions ("Why do you want this role?", "Tell us about yourself", "What interests you?") -> Write 2-3 sentences. Be specific to THIS job. Reference something from the job description. Connect it to a real achievement from the resume. No generic fluff. No "I am passionate about..." -- sound like a real person.
-
-EEO/demographics -> "Decline to self-identify" or "Prefer not to say" for everything."""
+    return f"""== SCREENING QUESTIONS ==
+Hard facts -> answer truthfully: location ({city}, no relocation), work auth ({work_auth.get('legally_authorized_to_work', 'see profile')}), citizenship, clearance, criminal/background.
+Skills -> be confident. {target_role} with {years} years experience. Same-domain tool = YES.
+Open-ended -> 2-3 sentences specific to THIS job. Reference something from the JD + a resume achievement. No generic fluff.
+EEO -> "Decline to self-identify" for everything."""
 
 
 def _build_hard_rules(profile: dict) -> str:
-    """Build the hard rules section with work auth and name from profile."""
     personal = profile["personal"]
     work_auth = profile["work_authorization"]
 
     full_name = personal["full_name"]
-    preferred_name = personal.get("preferred_name", full_name.split()[0])
-    preferred_last = full_name.split()[-1] if " " in full_name else ""
-    display_name = f"{preferred_name} {preferred_last}".strip() if preferred_last else preferred_name
-
-    # Build work auth rule dynamically
-    auth_info = work_auth.get("legally_authorized_to_work", "")
-    sponsorship = work_auth.get("require_sponsorship", "")
-    permit_type = work_auth.get("work_permit_type", "")
+    first_name = personal.get("first_name", full_name.rsplit(" ", 1)[0])
+    last_name = personal.get("last_name", full_name.rsplit(" ", 1)[-1])
+    middle_name = personal.get("middle_name", "")
+    preferred_name = personal.get("preferred_name", first_name.split()[0])
+    display_name = f"{preferred_name} {last_name}".strip()
 
     work_auth_rule = "Work auth: Answer truthfully from profile."
+    permit_type = work_auth.get("work_permit_type", "")
+    sponsorship = work_auth.get("require_sponsorship", "")
     if permit_type:
         work_auth_rule = f"Work auth: {permit_type}. Sponsorship needed: {sponsorship}."
 
-    name_rule = f'Name: Legal name = {full_name}.'
-    if preferred_name and preferred_name != full_name.split()[0]:
-        name_rule += f' Preferred name = {preferred_name}. Use "{display_name}" unless a field specifically says "legal name".'
+    middle_rule = f' Middle name = {middle_name} (only enter if field explicitly asks; do NOT use as first name).' if middle_name else ""
+    name_rule = (
+        f'Name fields: First = "{first_name}", Last = "{last_name}".{middle_rule}'
+        f' Preferred/goes-by = "{preferred_name}" — use this when the form asks for preferred name.'
+        f' If the form only has one "Full Name" field, enter "{full_name}".'
+        f' NEVER put "{middle_name or preferred_name}" in the First Name field alone.'
+    )
 
-    return f"""== HARD RULES (never break these) ==
-1. Never lie about: citizenship, work authorization, criminal history, education credentials, security clearance, licenses.
+    return f"""== HARD RULES ==
+1. Never lie about: citizenship, work auth, criminal history, education, clearance, licenses.
 2. {work_auth_rule}
 3. {name_rule}"""
 
 
 def _build_captcha_section() -> str:
-    """Build the CAPTCHA detection and solving instructions.
-
-    Reads the CapSolver API key from environment. The CAPTCHA section
-    contains no personal data -- it's the same for every user.
-    """
     config.load_env()
     capsolver_key = os.environ.get("CAPSOLVER_API_KEY", "")
 
     return f"""== CAPTCHA ==
-You solve CAPTCHAs via the CapSolver REST API. No browser extension. You control the entire flow.
-API key: {capsolver_key or 'NOT CONFIGURED — skip to MANUAL FALLBACK for all CAPTCHAs'}
-API base: https://api.capsolver.com
+CapSolver key: {capsolver_key or 'NOT SET — use MANUAL FALLBACK for all CAPTCHAs'}
+Flow: DETECT → SOLVE via API (createTask → poll → inject) → only MANUAL FALLBACK if errorId > 0.
+CapSolver is server-side — it does NOT need to see images. Always try API first regardless of CAPTCHA appearance.
 
-CRITICAL RULE: When ANY CAPTCHA appears (hCaptcha, reCAPTCHA, Turnstile -- regardless of what it looks like visually), you MUST:
-1. Run CAPTCHA DETECT to get the type and sitekey
-2. Run CAPTCHA SOLVE (createTask -> poll -> inject) with the CapSolver API
-3. ONLY go to MANUAL FALLBACK if CapSolver returns errorId > 0
-Do NOT skip the API call based on what the CAPTCHA looks like. CapSolver solves CAPTCHAs server-side -- it does NOT need to see or interact with images, puzzles, or games. Even "drag the pipe" or "click all traffic lights" hCaptchas are solved via API token, not visually. ALWAYS try the API first.
-
---- CAPTCHA DETECT ---
-Run this browser_evaluate after every navigation, Apply/Submit/Login click, or when a page feels stuck.
-IMPORTANT: Detection order matters. hCaptcha elements also have data-sitekey, so check hCaptcha BEFORE reCAPTCHA.
-
-browser_evaluate function: () => {{{{
+--- DETECT (run after every navigation/click/when stuck) ---
+Check hCaptcha BEFORE reCAPTCHA (both use data-sitekey).
+browser_evaluate: () => {{{{
   const r = {{}};
   const url = window.location.href;
-  // 1. hCaptcha (check FIRST -- hCaptcha uses data-sitekey too)
-  const hc = document.querySelector('.h-captcha, [data-hcaptcha-sitekey]');
-  if (hc) {{{{
-    r.type = 'hcaptcha'; r.sitekey = hc.dataset.sitekey || hc.dataset.hcaptchaSitekey;
-  }}}}
-  if (!r.type && document.querySelector('script[src*="hcaptcha.com"], iframe[src*="hcaptcha.com"]')) {{{{
-    const el = document.querySelector('[data-sitekey]');
-    if (el) {{{{ r.type = 'hcaptcha'; r.sitekey = el.dataset.sitekey; }}}}
-  }}}}
-  // 2. Cloudflare Turnstile
-  if (!r.type) {{{{
-    const cf = document.querySelector('.cf-turnstile, [data-turnstile-sitekey]');
-    if (cf) {{{{
-      r.type = 'turnstile'; r.sitekey = cf.dataset.sitekey || cf.dataset.turnstileSitekey;
-      if (cf.dataset.action) r.action = cf.dataset.action;
-      if (cf.dataset.cdata) r.cdata = cf.dataset.cdata;
-    }}}}
-  }}}}
-  if (!r.type && document.querySelector('script[src*="challenges.cloudflare.com"]')) {{{{
-    r.type = 'turnstile_script_only'; r.note = 'Wait 3s and re-detect.';
-  }}}}
-  // 3. reCAPTCHA v3 (invisible, loaded via render= param)
-  if (!r.type) {{{{
-    const s = document.querySelector('script[src*="recaptcha"][src*="render="]');
-    if (s) {{{{
-      const m = s.src.match(/render=([^&]+)/);
-      if (m && m[1] !== 'explicit') {{{{ r.type = 'recaptchav3'; r.sitekey = m[1]; }}}}
-    }}}}
-  }}}}
-  // 4. reCAPTCHA v2 (checkbox or invisible)
-  if (!r.type) {{{{
-    const rc = document.querySelector('.g-recaptcha');
-    if (rc) {{{{ r.type = 'recaptchav2'; r.sitekey = rc.dataset.sitekey; }}}}
-  }}}}
-  if (!r.type && document.querySelector('script[src*="recaptcha"]')) {{{{
-    const el = document.querySelector('[data-sitekey]');
-    if (el) {{{{ r.type = 'recaptchav2'; r.sitekey = el.dataset.sitekey; }}}}
-  }}}}
-  // 5. FunCaptcha (Arkose Labs)
-  if (!r.type) {{{{
-    const fc = document.querySelector('#FunCaptcha, [data-pkey], .funcaptcha');
-    if (fc) {{{{ r.type = 'funcaptcha'; r.sitekey = fc.dataset.pkey; }}}}
-  }}}}
-  if (!r.type && document.querySelector('script[src*="arkoselabs"], script[src*="funcaptcha"]')) {{{{
-    const el = document.querySelector('[data-pkey]');
-    if (el) {{{{ r.type = 'funcaptcha'; r.sitekey = el.dataset.pkey; }}}}
-  }}}}
-  if (r.type) {{{{ r.url = url; return r; }}}}
+  const hc = document.querySelector('.h-captcha,[data-hcaptcha-sitekey]');
+  if (hc) {{ r.type='hcaptcha'; r.sitekey=hc.dataset.sitekey||hc.dataset.hcaptchaSitekey; }}
+  if (!r.type && document.querySelector('script[src*="hcaptcha.com"],iframe[src*="hcaptcha.com"]')) {{
+    const el=document.querySelector('[data-sitekey]'); if (el) {{ r.type='hcaptcha'; r.sitekey=el.dataset.sitekey; }}
+  }}
+  if (!r.type) {{ const cf=document.querySelector('.cf-turnstile,[data-turnstile-sitekey]');
+    if (cf) {{ r.type='turnstile'; r.sitekey=cf.dataset.sitekey||cf.dataset.turnstileSitekey;
+      if (cf.dataset.action) r.action=cf.dataset.action; if (cf.dataset.cdata) r.cdata=cf.dataset.cdata; }}
+  }}
+  if (!r.type && document.querySelector('script[src*="challenges.cloudflare.com"]'))
+    {{ r.type='turnstile_script_only'; r.note='Wait 3s and re-detect.'; }}
+  if (!r.type) {{ const s=document.querySelector('script[src*="recaptcha"][src*="render="]');
+    if (s) {{ const m=s.src.match(/render=([^&]+)/); if (m&&m[1]!=='explicit') {{ r.type='recaptchav3'; r.sitekey=m[1]; }} }}
+  }}
+  if (!r.type) {{ const rc=document.querySelector('.g-recaptcha');
+    if (rc) {{ r.type='recaptchav2'; r.sitekey=rc.dataset.sitekey; }}
+  }}
+  if (!r.type && document.querySelector('script[src*="recaptcha"]')) {{
+    const el=document.querySelector('[data-sitekey]'); if (el) {{ r.type='recaptchav2'; r.sitekey=el.dataset.sitekey; }}
+  }}
+  if (!r.type) {{ const fc=document.querySelector('#FunCaptcha,[data-pkey],.funcaptcha');
+    if (fc) {{ r.type='funcaptcha'; r.sitekey=fc.dataset.pkey; }}
+  }}
+  if (r.type) {{ r.url=url; return r; }}
   return null;
 }}}}
+null=no CAPTCHA. turnstile_script_only=wait 3s re-detect. Any other type=proceed to SOLVE.
 
-Result actions:
-- null -> no CAPTCHA. Continue normally.
-- "turnstile_script_only" -> browser_wait_for time: 3, re-run detect.
-- Any other type -> proceed to CAPTCHA SOLVE below.
+--- SOLVE ---
+TASK_TYPE: hcaptcha→HCaptchaTaskProxyLess, recaptchav2→ReCaptchaV2TaskProxyLess, recaptchav3→ReCaptchaV3TaskProxyLess, turnstile→AntiTurnstileTaskProxyLess, funcaptcha→FunCaptchaTaskProxyLess
 
---- CAPTCHA SOLVE ---
-Three steps: createTask -> poll -> inject. Do each as a separate browser_evaluate call.
-
-STEP 1 -- CREATE TASK (copy this exactly, fill in the 3 placeholders):
-browser_evaluate function: async () => {{{{
-  const r = await fetch('https://api.capsolver.com/createTask', {{{{
-    method: 'POST',
-    headers: {{{{'Content-Type': 'application/json'}}}},
-    body: JSON.stringify({{{{
-      clientKey: '{capsolver_key}',
-      task: {{{{
-        type: 'TASK_TYPE',
-        websiteURL: 'PAGE_URL',
-        websiteKey: 'SITE_KEY'
-      }}}}
-    }}}})
-  }}}});
-  return await r.json();
+STEP 1 — CREATE TASK:
+browser_evaluate: async () => {{{{
+  const r=await fetch('https://api.capsolver.com/createTask',{{method:'POST',headers:{{{{'Content-Type':'application/json'}}}},
+    body:JSON.stringify({{clientKey:'{capsolver_key}',task:{{type:'TASK_TYPE',websiteURL:'PAGE_URL',websiteKey:'SITE_KEY'}}}})
+  }}); return await r.json();
 }}}}
+recaptchav3: add "pageAction":"submit". turnstile: add "metadata":{{"action":"...","cdata":"..."}} if found.
+errorId>0 → MANUAL FALLBACK.
 
-TASK_TYPE values (use EXACTLY these strings):
-  hcaptcha     -> HCaptchaTaskProxyLess
-  recaptchav2  -> ReCaptchaV2TaskProxyLess
-  recaptchav3  -> ReCaptchaV3TaskProxyLess
-  turnstile    -> AntiTurnstileTaskProxyLess
-  funcaptcha   -> FunCaptchaTaskProxyLess
-
-PAGE_URL = the url from detect result. SITE_KEY = the sitekey from detect result.
-For recaptchav3: add "pageAction": "submit" to the task object (or the actual action found in page scripts).
-For turnstile: add "metadata": {{"action": "...", "cdata": "..."}} if those were in detect result.
-
-Response: {{"errorId": 0, "taskId": "abc123"}} on success.
-If errorId > 0 -> CAPTCHA SOLVE failed. Go to MANUAL FALLBACK.
-
-STEP 2 -- POLL (replace TASK_ID with the taskId from step 1):
-Loop: browser_wait_for time: 3, then run:
-browser_evaluate function: async () => {{{{
-  const r = await fetch('https://api.capsolver.com/getTaskResult', {{{{
-    method: 'POST',
-    headers: {{{{'Content-Type': 'application/json'}}}},
-    body: JSON.stringify({{{{
-      clientKey: '{capsolver_key}',
-      taskId: 'TASK_ID'
-    }}}})
-  }}}});
-  return await r.json();
+STEP 2 — POLL (every 3s, max 10x):
+browser_evaluate: async () => {{{{
+  const r=await fetch('https://api.capsolver.com/getTaskResult',{{method:'POST',headers:{{{{'Content-Type':'application/json'}}}},
+    body:JSON.stringify({{clientKey:'{capsolver_key}',taskId:'TASK_ID'}})
+  }}); return await r.json();
 }}}}
+processing→wait 3s poll again. ready→extract: reCAPTCHA/hCaptcha=solution.gRecaptchaResponse, Turnstile=solution.token. errorId>0 or 30s→MANUAL FALLBACK.
 
-- status "processing" -> wait 3s, poll again. Max 10 polls (30s).
-- status "ready" -> extract token:
-    reCAPTCHA: solution.gRecaptchaResponse
-    hCaptcha:  solution.gRecaptchaResponse
-    Turnstile: solution.token
-- errorId > 0 or 30s timeout -> MANUAL FALLBACK.
-
-STEP 3 -- INJECT TOKEN (replace THE_TOKEN with actual token string):
-
-For reCAPTCHA v2/v3:
-browser_evaluate function: () => {{{{
-  const token = 'THE_TOKEN';
-  document.querySelectorAll('[name="g-recaptcha-response"]').forEach(el => {{{{ el.value = token; el.style.display = 'block'; }}}});
-  if (window.___grecaptcha_cfg) {{{{
-    const clients = window.___grecaptcha_cfg.clients;
-    for (const key in clients) {{{{
-      const walk = (obj, d) => {{{{
-        if (d > 4 || !obj) return;
-        for (const k in obj) {{{{
-          if (typeof obj[k] === 'function' && k.length < 3) try {{{{ obj[k](token); }}}} catch(e) {{{{}}}}
-          else if (typeof obj[k] === 'object') walk(obj[k], d+1);
-        }}}}
-      }}}};
-      walk(clients[key], 0);
-    }}}}
-  }}}}
+STEP 3 — INJECT:
+reCAPTCHA v2/v3:
+browser_evaluate: () => {{{{
+  const token='THE_TOKEN';
+  document.querySelectorAll('[name="g-recaptcha-response"]').forEach(el=>{{el.value=token;el.style.display='block';}});
+  if (window.___grecaptcha_cfg) {{ const c=window.___grecaptcha_cfg.clients;
+    for (const k in c) {{ const w=(o,d)=>{{if(d>4||!o)return;for(const x in o){{if(typeof o[x]==='function'&&x.length<3)try{{o[x](token);}}catch(e){{}}else if(typeof o[x]==='object')w(o[x],d+1);}}}};w(c[k],0); }}
+  }}
   return 'injected';
 }}}}
-
-For hCaptcha:
-browser_evaluate function: () => {{{{
-  const token = 'THE_TOKEN';
-  const ta = document.querySelector('[name="h-captcha-response"], textarea[name*="hcaptcha"]');
-  if (ta) ta.value = token;
-  document.querySelectorAll('iframe[data-hcaptcha-response]').forEach(f => f.setAttribute('data-hcaptcha-response', token));
-  const cb = document.querySelector('[data-hcaptcha-widget-id]');
-  if (cb && window.hcaptcha) try {{{{ window.hcaptcha.getResponse(cb.dataset.hcaptchaWidgetId); }}}} catch(e) {{{{}}}}
+hCaptcha:
+browser_evaluate: () => {{{{
+  const token='THE_TOKEN';
+  const ta=document.querySelector('[name="h-captcha-response"],textarea[name*="hcaptcha"]'); if(ta)ta.value=token;
+  document.querySelectorAll('iframe[data-hcaptcha-response]').forEach(f=>f.setAttribute('data-hcaptcha-response',token));
   return 'injected';
 }}}}
-
-For Turnstile:
-browser_evaluate function: () => {{{{
-  const token = 'THE_TOKEN';
-  const inp = document.querySelector('[name="cf-turnstile-response"], input[name*="turnstile"]');
-  if (inp) inp.value = token;
-  if (window.turnstile) try {{{{ const w = document.querySelector('.cf-turnstile'); if (w) window.turnstile.getResponse(w); }}}} catch(e) {{{{}}}}
+Turnstile:
+browser_evaluate: () => {{{{
+  const token='THE_TOKEN';
+  const inp=document.querySelector('[name="cf-turnstile-response"],input[name*="turnstile"]'); if(inp)inp.value=token;
   return 'injected';
 }}}}
-
-For FunCaptcha:
-browser_evaluate function: () => {{{{
-  const token = 'THE_TOKEN';
-  const inp = document.querySelector('#FunCaptcha-Token, input[name="fc-token"]');
-  if (inp) inp.value = token;
-  if (window.ArkoseEnforcement) try {{{{ window.ArkoseEnforcement.setConfig({{{{data: {{{{blob: token}}}}}}}}) }}}} catch(e) {{{{}}}}
+FunCaptcha:
+browser_evaluate: () => {{{{
+  const token='THE_TOKEN';
+  const inp=document.querySelector('#FunCaptcha-Token,input[name="fc-token"]'); if(inp)inp.value=token;
   return 'injected';
 }}}}
+After inject: wait 2s, snapshot. Widget gone=success. No change=click Submit. Still stuck=token expired, re-run STEP 1.
 
-After injecting: browser_wait_for time: 2, then snapshot.
-- Widget gone or green check -> success. Click Submit if needed.
-- No change -> click Submit/Verify/Continue button (some sites need it).
-- Still stuck -> token may have expired (~2 min lifetime). Re-run from STEP 1.
-
---- MANUAL FALLBACK ---
-You should ONLY be here if CapSolver createTask returned errorId > 0. If you haven't tried CapSolver yet, GO BACK and try it first.
-If CapSolver genuinely failed (errorId > 0):
-1. Audio challenge: Look for "audio" or "accessibility" button -> click it for an easier challenge.
-2. Text/logic puzzles: Solve them yourself. Think step by step. Common tricks: "All but 9 die" = 9 left. "3 sisters and 4 brothers, how many siblings?" = 7.
-3. Simple text captchas ("What is 3+7?", "Type the word") -> solve them.
-4. All else fails -> Output RESULT:CAPTCHA."""
+--- MANUAL FALLBACK (only if CapSolver errorId > 0) ---
+Audio challenge: look for audio/accessibility button. Text/logic puzzles: solve yourself. All else: RESULT:CAPTCHA."""
 
 
 def build_prompt(job: dict, tailored_resume: str,
                  cover_letter: str | None = None,
                  dry_run: bool = False) -> str:
-    """Build the full instruction prompt for the apply agent.
-
-    Loads the user profile and search config internally. All personal data
-    comes from the profile -- nothing is hardcoded.
-
-    Args:
-        job: Job dict from the database (must have url, title, site,
-             application_url, fit_score, tailored_resume_path).
-        tailored_resume: Plain-text content of the tailored resume.
-        cover_letter: Optional plain-text cover letter content.
-        dry_run: If True, tell the agent not to click Submit.
-
-    Returns:
-        Complete prompt string for the AI agent.
-    """
     profile = config.load_profile()
     search_config = config.load_search_config()
     personal = profile["personal"]
 
-    # --- Resolve resume PDF path ---
     resume_path = job.get("tailored_resume_path")
     if not resume_path:
         raise ValueError(f"No tailored resume for job: {job.get('title', 'unknown')}")
@@ -448,35 +298,37 @@ def build_prompt(job: dict, tailored_resume: str,
     if not src_pdf.exists():
         raise ValueError(f"Resume PDF not found: {src_pdf}")
 
-    # Copy to a clean filename for upload (recruiters see the filename)
     full_name = personal["full_name"]
     name_slug = full_name.replace(" ", "_")
+    # Copy to current/ for reference, but worker dir is the accessible path
     dest_dir = config.APPLY_WORKER_DIR / "current"
     dest_dir.mkdir(parents=True, exist_ok=True)
     upload_pdf = dest_dir / f"{name_slug}_Resume.pdf"
     shutil.copy(str(src_pdf), str(upload_pdf))
-    pdf_path = str(upload_pdf)
+    # Worker-specific copy — Playwright MCP is sandboxed to the worker dir
+    worker_id = job.get("_worker_id", 0)
+    worker_dir = config.APPLY_WORKER_DIR / f"worker-{worker_id}"
+    worker_dir.mkdir(parents=True, exist_ok=True)
+    worker_pdf = worker_dir / f"{name_slug}_Resume.pdf"
+    shutil.copy(str(src_pdf), str(worker_pdf))
+    pdf_path = str(worker_pdf)
 
-    # --- Cover letter handling ---
     cover_letter_text = cover_letter or ""
     cl_upload_path = ""
     cl_path = job.get("cover_letter_path")
     if cl_path and Path(cl_path).exists():
         cl_src = Path(cl_path)
-        # Read text from .txt sibling (PDF is binary)
         cl_txt = cl_src.with_suffix(".txt")
         if cl_txt.exists():
             cover_letter_text = cl_txt.read_text(encoding="utf-8")
         elif cl_src.suffix == ".txt":
             cover_letter_text = cl_src.read_text(encoding="utf-8")
-        # Upload must be PDF
         cl_pdf_src = cl_src.with_suffix(".pdf")
         if cl_pdf_src.exists():
             cl_upload = dest_dir / f"{name_slug}_Cover_Letter.pdf"
             shutil.copy(str(cl_pdf_src), str(cl_upload))
             cl_upload_path = str(cl_upload)
 
-    # --- Build all prompt sections ---
     profile_summary = _build_profile_summary(profile)
     location_check = _build_location_check(profile, search_config)
     salary_section = _build_salary_section(profile)
@@ -484,36 +336,35 @@ def build_prompt(job: dict, tailored_resume: str,
     hard_rules = _build_hard_rules(profile)
     captcha_section = _build_captcha_section()
 
-    # Cover letter fallback text
     city = personal.get("city", "the area")
     if not cover_letter_text:
         cl_display = (
-            f"None available. Skip if optional. If required, write 2 factual "
-            f"sentences: (1) relevant experience from the resume that matches "
-            f"this role, (2) available immediately and based in {city}."
+            f"None available. Skip if optional. If required: 2 sentences — "
+            f"(1) relevant experience matching this role, (2) available immediately, based in {city}."
         )
     else:
         cl_display = cover_letter_text
 
-    # Phone digits only (for fields with country prefix)
     phone_digits = "".join(c for c in personal.get("phone", "") if c.isdigit())
 
-    # SSO domains the agent cannot sign into (loaded from config/sites.yaml)
     from applypilot.config import load_blocked_sso
     blocked_sso = load_blocked_sso()
 
-    # Preferred display name
     preferred_name = personal.get("preferred_name", full_name.split()[0])
-    last_name = full_name.split()[-1] if " " in full_name else ""
+    last_name = personal.get("last_name", full_name.split()[-1] if " " in full_name else "")
     display_name = f"{preferred_name} {last_name}".strip()
 
-    # Dry-run: override submit instruction
     if dry_run:
-        submit_instruction = "IMPORTANT: Do NOT click the final Submit/Apply button. Review the form, verify all fields, then output RESULT:APPLIED with a note that this was a dry run."
+        submit_instruction = "Do NOT click Submit. Review all fields, then output RESULT:APPLIED (dry run)."
     else:
-        submit_instruction = "BEFORE clicking Submit/Apply, take a snapshot and review EVERY field on the page. Verify all data matches the APPLICANT PROFILE and TAILORED RESUME -- name, email, phone, location, work auth, resume uploaded, cover letter if applicable. If anything is wrong or missing, fix it FIRST. Only click Submit after confirming everything is correct."
+        submit_instruction = "Before Submit: snapshot and verify EVERY field matches profile and resume — name, email, phone, location, work auth, resume uploaded. Fix anything wrong FIRST."
 
-    prompt = f"""You are an autonomous job application agent. Your ONE mission: get this candidate an interview. You have all the information and tools. Think strategically. Act decisively. Submit the application.
+    prompt = f"""You are an autonomous job application agent. Submit this application.
+
+== TOOLS AVAILABLE (do NOT call ToolSearch — all tools are pre-loaded) ==
+- Browser: browser_navigate, browser_snapshot, browser_take_screenshot, browser_click, browser_type, browser_fill_form, browser_evaluate, browser_file_upload, browser_press_key, browser_wait_for, browser_scroll, browser_tabs, browser_run_code_unsafe
+- Email (for OTP/verification only): email:list_emails, email:get_email, email:search_emails, email:move_email
+Use these directly. NEVER call ToolSearch. NEVER call email:list_accounts — it is not needed and wastes a turn.
 
 == JOB ==
 URL: {job.get('application_url') or job['url']}
@@ -522,103 +373,127 @@ Company: {job.get('site', 'Unknown')}
 Fit Score: {job.get('fit_score', 'N/A')}/10
 
 == FILES ==
-Resume PDF (upload this): {pdf_path}
-Cover Letter PDF (upload if asked): {cl_upload_path or "N/A"}
+Resume PDF: {pdf_path}
+Cover Letter PDF: {cl_upload_path or 'N/A'}
 
-== RESUME TEXT (use when filling text fields) ==
+== RESUME TEXT ==
 {tailored_resume}
 
-== COVER LETTER TEXT (paste if text field, upload PDF if file field) ==
+== COVER LETTER ==
 {cl_display}
 
 == APPLICANT PROFILE ==
 {profile_summary}
 
-== YOUR MISSION ==
-Submit a complete, accurate application. Use the profile and resume as source data -- adapt to fit each form's format.
-
-If something unexpected happens and these instructions don't cover it, figure it out yourself. You are autonomous. Navigate pages, read content, try buttons, explore the site. The goal is always the same: submit the application. Do whatever it takes to reach that goal.
-
 {hard_rules}
 
-== NEVER DO THESE (immediate RESULT:FAILED if encountered) ==
-- NEVER grant camera, microphone, screen sharing, or location permissions. If a site requests them -> RESULT:FAILED:unsafe_permissions
-- NEVER do video/audio verification, selfie capture, ID photo upload, or biometric anything -> RESULT:FAILED:unsafe_verification
-- NEVER set up a freelancing profile (Mercor, Toptal, Upwork, Fiverr, Turing, etc.). These are contractor marketplaces, not job applications -> RESULT:FAILED:not_a_job_application
-- NEVER agree to hourly/contract rates, availability calendars, or "set your rate" flows. You are applying for FULL-TIME salaried positions only.
-- NEVER install browser extensions, download executables, or run assessment software.
-- NEVER enter payment info, bank details, or SSN/SIN.
-- NEVER click "Allow" on any browser permission popup. Always deny/block.
-- If the site is NOT a job application form (it's a profile builder, skills marketplace, talent network signup, coding assessment platform) -> RESULT:FAILED:not_a_job_application
-
-{location_check}
+== NEVER DO (output RESULT:FAILED immediately) ==
+- Camera/mic/screen/location permissions requested -> RESULT:FAILED:unsafe_permissions
+- Video/audio verification, selfie, ID photo, biometrics -> RESULT:FAILED:unsafe_verification
+- Freelancing platform (Mercor, Toptal, Upwork, Fiverr, Turing) -> RESULT:FAILED:not_a_job_application
+- Hourly/contract/rate-setting flows (full-time salaried only)
+- SSO login (Google/Microsoft OAuth) -> RESULT:FAILED:sso_required
+- Payment info, bank details, SSN/SIN
 
 {salary_section}
 
 {screening_section}
 
-== STEP-BY-STEP ==
-1. browser_navigate to the job URL.
-2. browser_snapshot to read the page. Then run CAPTCHA DETECT (see CAPTCHA section). If a CAPTCHA is found, solve it before continuing.
-3. LOCATION CHECK. Read the page for location info. If not eligible, output RESULT and stop.
-4. Find and click the Apply button. If email-only (page says "email resume to X"):
-   - send_email with subject "Application for {job['title']} -- {display_name}", body = 2-3 sentence pitch + contact info, attach resume PDF: ["{pdf_path}"]
-   - Output RESULT:APPLIED. Done.
-   After clicking Apply: browser_snapshot. Run CAPTCHA DETECT -- many sites trigger CAPTCHAs right after the Apply click. If found, solve before continuing.
-5. Login wall?
-   5a. FIRST: check the URL. If you landed on {', '.join(blocked_sso)}, or any SSO/OAuth page -> STOP. Output RESULT:FAILED:sso_required. Do NOT try to sign in to Google/Microsoft/SSO.
-   5b. Check for popups. Run browser_tabs action "list". If a new tab/window appeared (login popup), switch to it with browser_tabs action "select". Check the URL there too -- if it's SSO -> RESULT:FAILED:sso_required.
-   5c. Regular login form (employer's own site)? Try sign in: {personal['email']} / {personal.get('password', '')}
-   5d. After clicking Login/Sign-in: run CAPTCHA DETECT. Login pages frequently have invisible CAPTCHAs that silently block form submissions. If found, solve it then retry login.
-   5e. Sign in failed? Try sign up with same email and password.
-   5f. Need email verification? Use search_emails + read_email to get the code.
-   5g. After login, run browser_tabs action "list" again. Switch back to the application tab if needed.
-   5h. All failed? Output RESULT:FAILED:login_issue. Do not loop.
-6. Upload resume. ALWAYS upload fresh -- delete any existing resume first, then browser_file_upload with the PDF path above. This is the tailored resume for THIS job. Non-negotiable.
-7. Upload cover letter if there's a field for it. Text field -> paste the cover letter text. File upload -> use the cover letter PDF path.
-8. Check ALL pre-filled fields. ATS systems parse your resume and auto-fill -- it's often WRONG.
-   - "Current Job Title" or "Most Recent Title" -> use the title from the TAILORED RESUME summary, NOT whatever the parser guessed.
-   - Compare every other field to the APPLICANT PROFILE. Fix mismatches. Fill empty fields.
-9. Answer screening questions using the rules above.
-10. {submit_instruction}
-11. After submit: browser_snapshot. Run CAPTCHA DETECT -- submit buttons often trigger invisible CAPTCHAs. If found, solve it (the form will auto-submit once the token clears, or you may need to click Submit again). Then check for new tabs (browser_tabs action: "list"). Switch to newest, close old. Snapshot to confirm submission. Look for "thank you" or "application received".
-12. Output your result.
+== STEPS ==
+1. Check job URL. If it starts with "/" (relative path, no domain) -> RESULT:FAILED:bad_url immediately. Do NOT guess domains.
+2. browser_navigate to job URL.
+3. browser_snapshot. Run CAPTCHA DETECT. Solve if found.
+4. Click Apply. If email-only: send_email subject "Application for {job['title']} — {display_name}", body=2-3 sentence pitch + contact, attach "{pdf_path}". Output RESULT:APPLIED.
+   After clicking Apply: run CAPTCHA DETECT.
+6. Login wall?
+   6a. URL is {', '.join(blocked_sso)} or any SSO/OAuth -> RESULT:FAILED:sso_required.
+   6b. New tab/popup (browser_tabs list)? Switch to it. SSO URL -> RESULT:FAILED:sso_required.
+   6c. Regular login: {personal['email']} / {personal.get('password', '')}
+   6d. After Login click: run CAPTCHA DETECT.
+   6e. Login failed (wrong password / "invalid credentials" / "email already registered")?
+       IMPORTANT: Do NOT invent alternative passwords or try variants. Do NOT create a new account with a different email.
+       - Look for "Forgot password", "Reset password", or "Trouble signing in" link and click it immediately.
+       - Enter {personal['email']} and submit the reset form.
+       - Wait 10s, then search_emails for a password reset email from the site's domain.
+       - Use get_email to get the reset link. Navigate to it. Set new password to {personal.get('password', '')}.
+       - Return to login, retry 6c with the new password.
+       - No "Forgot password" link AND no existing account: try sign up with {personal['email']} / {personal.get('password', '')}.
+       - Sign up fails (email taken / already registered): go back to forgot password flow above.
+   6f. Email verification/OTP required?
+       Do NOT call list_accounts. Go directly:
+       - Wait 8s, then call list_emails with limit=10 to get the 10 most recent emails.
+       - Find the one from the site's domain (match sender domain, not exact address).
+       - Call get_email on that message id to read the full body.
+       - OTP/code field visible: extract the numeric code, type it. Then archive:
+         move_email(account='default', emailId=<id>, sourceMailbox='INBOX', destinationMailbox='Archive')
+       - Verification link (no code field): extract the URL, browser_navigate to it, continue.
+         Then archive: move_email(account='default', emailId=<id>, sourceMailbox='INBOX', destinationMailbox='Archive')
+       - Nothing relevant in last 10 emails: wait 10s more, call list_emails again once.
+       - Still nothing: RESULT:FAILED:login_issue
+   6g. Switch back to application tab if needed.
+   6h. All failed -> RESULT:FAILED:login_issue.
+7. Upload resume: delete existing first, browser_file_upload with PDF path. Always upload fresh.
+8. Cover letter field? Text -> paste. File -> upload PDF.
+9. Check ALL pre-filled fields. ATS parsers are wrong. Fix "Current Job Title" and everything else against profile.
+10. Answer screening questions per rules above.
+11. {submit_instruction}
+12. After submit: CAPTCHA DETECT. Check for new tabs. Snapshot to confirm "thank you" / "application received".
+13. Output RESULT.
 
-== RESULT CODES (output EXACTLY one) ==
-RESULT:APPLIED -- submitted successfully
-RESULT:EXPIRED -- job closed or no longer accepting applications
-RESULT:CAPTCHA -- blocked by unsolvable captcha
-RESULT:LOGIN_ISSUE -- could not sign in or create account
-RESULT:FAILED:not_eligible_location -- onsite outside acceptable area, no remote option
-RESULT:FAILED:not_eligible_work_auth -- requires unauthorized work location
-RESULT:FAILED:reason -- any other failure (brief reason)
+== RESULT CODES ==
+RESULT:APPLIED | RESULT:EXPIRED | RESULT:CAPTCHA | RESULT:LOGIN_ISSUE
+RESULT:FAILED:not_eligible_location | RESULT:FAILED:not_eligible_work_auth | RESULT:FAILED:reason
 
 == BROWSER EFFICIENCY ==
-- browser_snapshot ONCE per page to understand it. Then use browser_take_screenshot to check results (10x less memory).
-- Only snapshot again when you need element refs to click/fill.
-- Multi-page forms (Workday, Taleo, iCIMS): snapshot each new page, fill all fields, click Next/Continue. Repeat until final review page.
-- Fill ALL fields in ONE browser_fill_form call. Not one at a time.
-- Keep your thinking SHORT. Don't repeat page structure back.
-- CAPTCHA AWARENESS: After any navigation, Apply/Submit/Login click, or when a page feels stuck -- run CAPTCHA DETECT (see CAPTCHA section). Invisible CAPTCHAs (Turnstile, reCAPTCHA v3) show NO visual widget but block form submissions silently. The detect script finds them even when invisible.
+- browser_snapshot once per page for element refs. browser_take_screenshot to check results (10x less data).
+- Snapshot again only when you need new refs.
+- Fill ALL fields in ONE browser_fill_form call.
+- Multi-page forms (Workday, Taleo, iCIMS): snapshot each page, fill all, click Next. Repeat to final review.
+- After any navigation/Apply/Submit/Login click or when stuck: run CAPTCHA DETECT. Invisible CAPTCHAs (Turnstile, reCAPTCHA v3) block silently with no visual widget.
 
 == FORM TRICKS ==
-- Popup/new window opened? browser_tabs action "list" to see all tabs. browser_tabs action "select" with the tab index to switch. ALWAYS check for new tabs after clicking login/apply/sign-in buttons.
-- "Upload your resume" pre-fill page (Workday, Lever, etc.): This is NOT the application form yet. Click "Select file" or the upload area, then browser_file_upload with the resume PDF path. Wait for parsing to finish. Then click Next/Continue to reach the actual form.
-- File upload not working? Try: (1) browser_click the upload button/area, (2) browser_file_upload with the path. If still failing, look for a hidden file input or a "Select file" link and click that first.
-- Dropdown won't fill? browser_click to open it, then browser_click the option.
-- Checkbox won't check via fill_form? Use browser_click on it instead. Snapshot to verify.
-- Phone field with country prefix: just type digits {phone_digits}
+- New tab opened? browser_tabs list/select. Always check after login/apply/sign-in clicks.
+- Workday/Lever pre-fill page: click upload area, browser_file_upload, wait for parse, click Next.
+- Dropdowns — NEVER type verbatim and press Enter. Use this exact flow:
+  1. Click the dropdown/input to open it.
+  2. Type 2-3 characters of the target value to filter. browser_snapshot to see filtered results.
+  3. If matching options appear: click the closest one (fuzzy OK — "Job Board"="Online Job Board", "Decline"="Prefer not to say", "Not a Veteran"="I am not a protected veteran").
+  4. If no results after typing: clear the field (select-all + delete), then browser_snapshot to read ALL available options, then click the closest match.
+  5. Never leave a required dropdown empty. If nothing fits, pick the most neutral/generic option available.
+- Checkbox won't check? browser_click it directly.
+- Phone with country prefix: type digits only: {phone_digits}
+- Canadian postal codes: strip spaces before typing (M1P 4V4 -> M1P4V4). If it's a lookup dropdown: type the full 6 chars (M1P4V4) to filter first — if exact match appears, click it. If no exact match, clear and type just the FSA (first 3 chars, e.g. M1P) to get nearby options, then click the closest result.
+- "How Did You Hear About Us?" / "Source" / "How did you find this job?": open the dropdown, pick the closest option to "Online Job Board" (e.g. "Job Board", "Indeed", "LinkedIn", "Internet/Online"). Never leave it blank.
 - Date fields: {datetime.now().strftime('%m/%d/%Y')}
-- Validation errors after submit? Take BOTH snapshot AND screenshot. Snapshot shows text errors, screenshot shows red-highlighted fields. Fix all, retry.
-- Honeypot fields (hidden, "leave blank"): skip them.
-- Format-sensitive fields: read the placeholder text, match it exactly.
+- Validation errors? Take snapshot AND screenshot. Fix all, retry.
+- React/SPA forms (Ashby, Lever, Greenhouse): if fields show as empty on submit despite being typed, the framework didn't register the input. After typing, dispatch events via JS: browser_evaluate: (ref) => {{ const el = document.querySelector('input[name="..."]') || document.activeElement; el.dispatchEvent(new Event('input', {{bubbles:true}})); el.dispatchEvent(new Event('change', {{bubbles:true}})); }} then re-snapshot to confirm value is set.
 
 {captcha_section}
 
-== WHEN TO GIVE UP ==
-- Same page after 3 attempts with no progress -> RESULT:FAILED:stuck
-- Job is closed/expired/page says "no longer accepting" -> RESULT:EXPIRED
-- Page is broken/500 error/blank -> RESULT:FAILED:page_error
-Stop immediately. Output your RESULT code. Do not loop."""
+== GIVE UP WHEN ==
+- Same page after 3 attempts -> RESULT:FAILED:stuck
+
+== VALIDATION ERRORS ==
+NEVER skip a field marked red or "Fields to fix: N" and proceed to Submit — the form will always block you.
+NEVER cancel an education/experience form you've opened mid-fill — finish it completely before closing.
+NEVER delete an education entry to avoid filling it — education is always required. Add it back if deleted.
+NEVER submit without a completed education entry.
+If an edit dialog won't open after 2 tries: browser_snapshot to get fresh element refs, then try clicking the pencil/edit/checkmark icon by ref. If still stuck after 3 attempts total, delete the entry and re-add it from scratch — but fill the new one completely.
+For date pickers / Month+Year dropdowns that won't respond to click or type, force-set via JS:
+browser_evaluate: () => {{
+  const selects = document.querySelectorAll('select');
+  selects.forEach(s => {{
+    const label = (s.getAttribute('aria-label') || s.id || '').toLowerCase();
+    if (label.includes('start') && label.includes('month')) {{ s.value = Array.from(s.options).find(o => o.text.includes('September') || o.text === '9' || o.value === '9')?.value || '9'; s.dispatchEvent(new Event('change', {{bubbles:true}})); }}
+    if (label.includes('start') && label.includes('year')) {{ s.value = '2025'; s.dispatchEvent(new Event('change', {{bubbles:true}})); }}
+    if ((label.includes('end') || label.includes('projected') || label.includes('completion') || label.includes('graduation')) && label.includes('month')) {{ s.value = Array.from(s.options).find(o => o.text.includes('April') || o.text === '4' || o.value === '4')?.value || '4'; s.dispatchEvent(new Event('change', {{bubbles:true}})); }}
+    if ((label.includes('end') || label.includes('projected') || label.includes('completion') || label.includes('graduation')) && label.includes('year')) {{ s.value = '2029'; s.dispatchEvent(new Event('change', {{bubbles:true}})); }}
+  }});
+  return 'done';
+}}
+Run this JS before trying manual clicks on date fields. Then snapshot to verify. Only fall back to manual clicks if JS had no effect.
+Graduation/completion = April 2029. Start = September 2025.
+- Job closed/expired -> RESULT:EXPIRED
+- Page broken/500 -> RESULT:FAILED:page_error"""
 
     return prompt

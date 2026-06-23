@@ -319,6 +319,36 @@ def status() -> None:
 
         console.print(site_table)
 
+    # Manual apply queue
+    from applypilot.database import get_connection
+    conn = get_connection()
+    manual_rows = conn.execute("""
+        SELECT title, url, application_url, apply_status, fit_score
+        FROM jobs
+        WHERE apply_status IN ('skip', 'manual', 'failed')
+          AND tailored_resume_path IS NOT NULL
+        ORDER BY fit_score DESC, title
+    """).fetchall()
+    if manual_rows:
+        manual_table = Table(title=f"\nManual Apply Queue ({len(manual_rows)} jobs — resume tailored, apply yourself)",
+                             show_header=True, header_style="bold red")
+        manual_table.add_column("Score", width=5, justify="center")
+        manual_table.add_column("Job")
+        manual_table.add_column("Reason", width=10)
+        manual_table.add_column("URL")
+        for row in manual_rows:
+            apply_url = row[2] or row[1] or ""
+            score = str(row[4]) if row[4] else "?"
+            status = row[3] or ""
+            if "linkedin.com" in apply_url:
+                reason = "LinkedIn"
+            elif status == "failed":
+                reason = "failed"
+            else:
+                reason = "manual"
+            manual_table.add_row(f"{score}/10", row[0] or "", reason, apply_url[:70])
+        console.print(manual_table)
+
     console.print()
 
 

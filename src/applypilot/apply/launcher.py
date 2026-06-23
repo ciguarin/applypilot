@@ -65,22 +65,38 @@ if platform.system() != "Windows":
 
 def _make_mcp_config(cdp_port: int) -> dict:
     """Build MCP config dict for a specific CDP port."""
-    return {
+    config.load_env()
+    mcp: dict = {
         "mcpServers": {
             "playwright": {
                 "command": "npx",
                 "args": [
-                    "@playwright/mcp@latest",
+                    "-y",
+                    "@playwright/mcp",
                     f"--cdp-endpoint=http://localhost:{cdp_port}",
                     f"--viewport-size={config.DEFAULTS['viewport']}",
                 ],
             },
-            "gmail": {
-                "command": "npx",
-                "args": ["-y", "@gongrzhe/server-gmail-autoauth-mcp"],
-            },
         }
     }
+    email_addr = os.environ.get("EMAIL_ADDRESS", "")
+    email_pass = os.environ.get("EMAIL_PASSWORD", "")
+    if email_addr and email_pass:
+        imap_host = os.environ.get("EMAIL_IMAP_HOST", "imap.mail.me.com")
+        smtp_host = os.environ.get("EMAIL_SMTP_HOST", "smtp.mail.me.com")
+        mcp["mcpServers"]["email"] = {
+            "command": "npx",
+            "args": ["-y", "@codefuturist/email-mcp"],
+            "env": {
+                "MCP_EMAIL_ADDRESS":      email_addr,
+                "MCP_EMAIL_PASSWORD":     email_pass,
+                "MCP_EMAIL_IMAP_HOST":    imap_host,
+                "MCP_EMAIL_SMTP_HOST":    smtp_host,
+                "MCP_EMAIL_ACCOUNT_NAME": "default",
+                "MCP_EMAIL_READ_ONLY":    "false",
+            },
+        }
+    return mcp
 
 
 # ---------------------------------------------------------------------------
@@ -310,7 +326,8 @@ def run_job(job: dict, port: int, worker_id: int = 0,
     if txt_path and txt_path.exists():
         resume_text = txt_path.read_text(encoding="utf-8")
 
-    # Build the prompt
+    # Build the prompt (inject worker_id so prompt can use worker-local file paths)
+    job["_worker_id"] = worker_id
     agent_prompt = prompt_mod.build_prompt(
         job=job,
         tailored_resume=resume_text,
@@ -329,16 +346,7 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         "--mcp-config", str(mcp_config_path),
         "--permission-mode", "bypassPermissions",
         "--no-session-persistence",
-        "--disallowedTools", (
-            "mcp__gmail__draft_email,mcp__gmail__modify_email,"
-            "mcp__gmail__delete_email,mcp__gmail__download_attachment,"
-            "mcp__gmail__batch_modify_emails,mcp__gmail__batch_delete_emails,"
-            "mcp__gmail__create_label,mcp__gmail__update_label,"
-            "mcp__gmail__delete_label,mcp__gmail__get_or_create_label,"
-            "mcp__gmail__list_email_labels,mcp__gmail__create_filter,"
-            "mcp__gmail__list_filters,mcp__gmail__get_filter,"
-            "mcp__gmail__delete_filter"
-        ),
+        "--disallowedTools", "Bash,ToolSearch,mcp__email__list_accounts,mcp__email__send_email,mcp__email__delete_email,mcp__email__create_draft",
         "--output-format", "stream-json",
         "--verbose", "-",
     ]
@@ -348,6 +356,16 @@ def run_job(job: dict, port: int, worker_id: int = 0,
     env.pop("CLAUDE_CODE_ENTRYPOINT", None)
 
     worker_dir = reset_worker_dir(worker_id)
+
+    # Copy resume/cover letter into worker dir so Playwright MCP can access them
+    import shutil as _shutil
+    for file_key in ("tailored_resume_path", "cover_letter_path"):
+        src = job.get(file_key, "")
+        if src:
+            for ext in (".pdf", ".txt"):
+                p = Path(src).with_suffix(ext)
+                if p.exists():
+                    _shutil.copy(str(p), str(worker_dir / p.name))
 
     update_state(worker_id, status="applying", job_title=job["title"],
                  company=job.get("site", ""), score=job.get("fit_score", 0),
@@ -387,7 +405,7 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         proc.stdin.close()
 
         text_parts: list[str] = []
-        with open(worker_log, "a", encoding="utf-8") as lf:
+        with open(worker_log, "a", encoding="utf-8", buffering=1) as lf:
             lf.write(log_header)
 
             for line in proc.stdout:
@@ -407,7 +425,7 @@ def run_job(job: dict, port: int, worker_id: int = 0,
                                 name = (
                                     block.get("name", "")
                                     .replace("mcp__playwright__", "")
-                                    .replace("mcp__gmail__", "gmail:")
+                                    .replace("mcp__email__", "email:")
                                 )
                                 inp = block.get("input", {})
                                 if "url" in inp:

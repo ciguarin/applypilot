@@ -74,9 +74,8 @@ Take the base resume and job description. Return a tailored resume as a JSON obj
 
 ## RECRUITER SCAN (6 seconds):
 1. Title -- matches what they're hiring?
-2. Summary -- 2 sentences proving you've done this work
-3. First 3 bullets of most recent role -- verbs and outcomes match?
-4. Skills -- must-haves visible immediately?
+2. First 3 bullets of most recent role -- verbs and outcomes match?
+3. Skills -- must-haves visible immediately?
 
 ## SKILLS BOUNDARY (real skills only):
 {skills_block}
@@ -86,8 +85,6 @@ You MAY add 2-3 closely related tools (Kubernetes if Docker, Terraform if AWS, R
 ## TAILORING RULES:
 
 TITLE: Match the target role. Keep seniority (Senior/Lead/Staff). Drop company suffixes and team names.
-
-SUMMARY: Rewrite from scratch. Lead with the 1-2 skills that matter most for THIS role. Sound like someone who's done this job.
 
 SKILLS: Reorder each category so the job's must-haves appear first.
 
@@ -114,7 +111,7 @@ BULLETS: Strong verb + what you built + quantified impact. Vary verbs (Built, De
 
 ## OUTPUT: Return ONLY valid JSON. No markdown fences. No commentary. No "here is" preamble.
 
-{{"title":"Role Title","summary":"2-3 tailored sentences.","skills":{{"Languages":"...","Frameworks":"...","DevOps & Infra":"...","Databases":"...","Tools":"..."}},"experience":[{{"header":"Title at Company","subtitle":"Tech | Dates","bullets":["bullet 1","bullet 2","bullet 3","bullet 4"]}}],"projects":[{{"header":"Project Name - Description","subtitle":"Tech | Dates","bullets":["bullet 1","bullet 2"]}}],"education":"{school} | {education_level}"}}"""
+{{"title":"Role Title","skills":{{"Languages":"...","Frameworks":"...","DevOps & Infra":"...","Databases":"...","Tools":"..."}},"experience":[{{"header":"Title at Company","subtitle":"Tech | Dates","bullets":["bullet 1","bullet 2","bullet 3","bullet 4"]}}],"projects":[{{"header":"Project Name - Description","subtitle":"Tech | Dates","bullets":["bullet 1","bullet 2"]}}],"education":"{school} | {education_level}"}}"""
 
 
 def _build_judge_prompt(profile: dict) -> str:
@@ -256,11 +253,6 @@ def assemble_resume_text(data: dict, profile: dict) -> str:
         contact_parts.append(personal["linkedin_url"])
     if contact_parts:
         lines.append(" | ".join(contact_parts))
-    lines.append("")
-
-    # Summary
-    lines.append("SUMMARY")
-    lines.append(sanitize_text(data["summary"]))
     lines.append("")
 
     # Technical Skills
@@ -409,6 +401,8 @@ def tailor_resume(
             avoid_notes.append("Output was not valid JSON. Return ONLY a JSON object, nothing else.")
             continue
 
+        report["resume_json"] = data
+
         # Layer 1: Validate JSON fields
         validation = validate_json_fields(data, profile, mode=validation_mode)
         report["validator"] = validation
@@ -516,14 +510,24 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
             report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
             # Generate PDF for approved resumes (best-effort)
-            # "approved_with_judge_warning" is also a success — resume was generated.
+            # Try resumake API first (LaTeX template); fall back to built-in HTML renderer.
             pdf_path = None
             if report["status"] in ("approved", "approved_with_judge_warning"):
-                try:
-                    from applypilot.scoring.pdf import convert_to_pdf
-                    pdf_path = str(convert_to_pdf(txt_path))
-                except Exception:
-                    log.debug("PDF generation failed for %s", txt_path, exc_info=True)
+                resume_json = report.get("resume_json")
+                if resume_json:
+                    try:
+                        from applypilot.scoring.pdf import convert_resume_json_to_pdf
+                        pdf_out = txt_path.with_suffix(".pdf")
+                        convert_resume_json_to_pdf(resume_json, profile, pdf_out)
+                        pdf_path = str(pdf_out)
+                    except Exception:
+                        log.debug("resumake PDF failed, falling back to HTML renderer", exc_info=True)
+                if not pdf_path:
+                    try:
+                        from applypilot.scoring.pdf import convert_to_pdf
+                        pdf_path = str(convert_to_pdf(txt_path))
+                    except Exception:
+                        log.debug("PDF generation failed for %s", txt_path, exc_info=True)
 
             result = {
                 "url": job["url"],
