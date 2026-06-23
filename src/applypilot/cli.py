@@ -483,5 +483,134 @@ def doctor() -> None:
     console.print()
 
 
+config_app = typer.Typer(help="View and change settings without re-running init.")
+app.add_typer(config_app, name="config")
+
+
+@config_app.command("show")
+def config_show() -> None:
+    """Show all current settings."""
+    import json, os
+    from applypilot.config import load_env, PROFILE_PATH, SEARCH_CONFIG_PATH, ENV_PATH
+
+    load_env()
+
+    console.print("\n[bold]ApplyPilot Settings[/bold]\n")
+
+    # Cities from profile
+    try:
+        profile = json.loads(PROFILE_PATH.read_text())
+        cities = profile.get("preferred_cities", ["toronto", "remote"])
+        console.print(f"  [cyan]cities[/cyan]        {', '.join(cities)}")
+        console.print(f"  [cyan]name[/cyan]          {profile.get('personal', {}).get('first_name', '?')} {profile.get('personal', {}).get('last_name', '?')}")
+    except (FileNotFoundError, json.JSONDecodeError):
+        console.print("  [red]profile.json not found — run applypilot init[/red]")
+
+    # Queries from searches.yaml
+    try:
+        import yaml
+        cfg = yaml.safe_load(SEARCH_CONFIG_PATH.read_text())
+        queries = [q["query"] for q in cfg.get("queries", [])]
+        console.print(f"  [cyan]queries[/cyan]       {', '.join(queries)}")
+        console.print(f"  [cyan]hours_old[/cyan]     {cfg.get('defaults', {}).get('hours_old', 168)}")
+    except (FileNotFoundError, Exception):
+        console.print("  [red]searches.yaml not found — run applypilot init[/red]")
+
+    # LLM from env
+    model = os.environ.get("LLM_MODEL", "gemini-2.0-flash")
+    provider = "gemini" if os.environ.get("GEMINI_API_KEY") else \
+               "openai" if os.environ.get("OPENAI_API_KEY") else \
+               os.environ.get("LLM_URL", "not set")
+    console.print(f"  [cyan]llm[/cyan]           {provider} / {model}")
+    console.print()
+
+
+@config_app.command("cities")
+def config_cities() -> None:
+    """Change your target cities."""
+    import json
+    from applypilot.config import PROFILE_PATH, SEARCH_CONFIG_PATH
+    from applypilot.wizard.init import CANADIAN_CITIES, _setup_searches
+
+    try:
+        profile = json.loads(PROFILE_PATH.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        console.print("[red]Profile not found. Run applypilot init first.[/red]")
+        raise typer.Exit(1)
+
+    current = profile.get("preferred_cities", ["toronto", "remote"])
+    console.print(f"\nCurrent cities: [cyan]{', '.join(current)}[/cyan]\n")
+    _setup_searches(profile)
+
+    PROFILE_PATH.write_text(json.dumps(profile, indent=2), encoding="utf-8")
+    console.print("[green]Cities and search config updated.[/green]")
+
+
+@config_app.command("queries")
+def config_queries() -> None:
+    """Change your search queries (job titles)."""
+    import yaml
+    from applypilot.config import SEARCH_CONFIG_PATH
+    from rich.prompt import Prompt
+
+    try:
+        cfg = yaml.safe_load(SEARCH_CONFIG_PATH.read_text())
+    except FileNotFoundError:
+        console.print("[red]searches.yaml not found. Run applypilot init first.[/red]")
+        raise typer.Exit(1)
+
+    current = [q["query"] for q in cfg.get("queries", [])]
+    console.print(f"\nCurrent queries: [cyan]{', '.join(current)}[/cyan]\n")
+
+    raw = Prompt.ask("New queries (comma-separated)")
+    roles = [r.strip() for r in raw.split(",") if r.strip()]
+    if not roles:
+        console.print("[yellow]No changes made.[/yellow]")
+        return
+
+    cfg["queries"] = [{"query": r, "tier": min(i + 1, 3)} for i, r in enumerate(roles)]
+    SEARCH_CONFIG_PATH.write_text(yaml.dump(cfg, default_flow_style=False, allow_unicode=True))
+    console.print(f"[green]Queries updated: {', '.join(roles)}[/green]")
+
+
+@config_app.command("model")
+def config_model() -> None:
+    """Change the LLM model."""
+    import re
+    from applypilot.config import ENV_PATH, load_env
+    from rich.prompt import Prompt
+
+    load_env()
+    import os
+    current = os.environ.get("LLM_MODEL", "gemini-2.0-flash")
+    console.print(f"\nCurrent model: [cyan]{current}[/cyan]\n")
+
+    model = Prompt.ask("New model (e.g. gemini-2.0-flash, gpt-4o-mini, claude-haiku-4-5-20251001)")
+    if not model.strip():
+        console.print("[yellow]No changes made.[/yellow]")
+        return
+
+    env_text = ENV_PATH.read_text(encoding="utf-8") if ENV_PATH.exists() else ""
+    if "LLM_MODEL=" in env_text:
+        env_text = re.sub(r"LLM_MODEL=.*", f"LLM_MODEL={model.strip()}", env_text)
+    else:
+        env_text += f"\nLLM_MODEL={model.strip()}\n"
+    ENV_PATH.write_text(env_text, encoding="utf-8")
+    console.print(f"[green]Model updated to {model.strip()}[/green]")
+
+
+@config_app.command("score")
+def config_score(
+    threshold: int = typer.Argument(..., help="Minimum fit score (1-10) for tailoring and auto-apply."),
+) -> None:
+    """Set the minimum fit score threshold."""
+    if not 1 <= threshold <= 10:
+        console.print("[red]Score must be between 1 and 10.[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]Min score set to {threshold}.[/green]")
+    console.print(f"[dim]Pass it at runtime: applypilot run --min-score {threshold}[/dim]")
+    console.print(f"[dim]Or: applypilot apply --min-score {threshold}[/dim]")
+
+
 if __name__ == "__main__":
     app()

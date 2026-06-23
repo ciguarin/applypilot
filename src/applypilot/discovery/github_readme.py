@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
-from applypilot.config import APP_DIR
+from applypilot.config import APP_DIR, PROFILE_PATH
 from applypilot.database import get_connection, init_db
 
 log = logging.getLogger(__name__)
@@ -99,9 +99,23 @@ def _save_sha_cache(cache: dict) -> None:
 # Filters
 # ---------------------------------------------------------------------------
 
-def _location_ok(loc: str) -> bool:
+def _load_preferred_cities() -> list[str]:
+    try:
+        profile = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
+        cities = profile.get("preferred_cities", [])
+        if cities:
+            return [c.lower() for c in cities]
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    return ["toronto", "remote"]
+
+
+def _location_ok(loc: str, preferred_cities: list[str] | None = None) -> bool:
     l = loc.lower()
-    return "toronto" in l or "remote" in l
+    cities = preferred_cities if preferred_cities is not None else _load_preferred_cities()
+    if "remote" in cities and any(kw in l for kw in ("remote", "anywhere", "canada")):
+        return True
+    return any(city in l for city in cities if city != "remote")
 
 
 def _title_ok(title: str, check_hardware: bool = True) -> bool:
@@ -122,7 +136,7 @@ def _extract_last_url(cell: str) -> str | None:
 # Parsers (one per README schema)
 # ---------------------------------------------------------------------------
 
-def _parse_negarprh(raw: str) -> list[dict]:
+def _parse_negarprh(raw: str, preferred_cities: list[str] | None = None) -> list[dict]:
     """Parse negarprh/Canadian-Tech-Internships table format.
 
     Columns: Company | Role | Location | Apply
@@ -166,7 +180,7 @@ def _parse_negarprh(raw: str) -> list[dict]:
         url = _extract_last_url(apply_cell)
         if not url or "linkedin.com" in url:
             continue
-        if not _location_ok(location):
+        if not _location_ok(location, preferred_cities):
             continue
         if not _title_ok(role, check_hardware=True):
             continue
@@ -176,7 +190,7 @@ def _parse_negarprh(raw: str) -> list[dict]:
     return jobs
 
 
-def _parse_hanzili(raw: str) -> list[dict]:
+def _parse_hanzili(raw: str, preferred_cities: list[str] | None = None) -> list[dict]:
     """Parse hanzili/canada_sde_intern_position table format.
 
     Columns: Title | Company | Location | Apply
@@ -228,7 +242,7 @@ def _parse_hanzili(raw: str) -> list[dict]:
         url = m.group(1)
         if "linkedin.com" in url:
             continue
-        if not _location_ok(raw_location):
+        if not _location_ok(raw_location, preferred_cities):
             continue
         if not _title_ok(title, check_hardware=False):
             continue
@@ -315,6 +329,8 @@ def run_github_readme_discovery(sources: list[dict] | None = None) -> dict:
         return {"inserted": 0, "pruned": 0, "sources_checked": len(active_sources)}
 
     # At least one source changed — fetch and parse all
+    preferred_cities = _load_preferred_cities()
+    log.info("[github_readme] Filtering for cities: %s", preferred_cities)
     all_jobs: list[dict] = []
     for source in active_sources:
         readme = _fetch(source["readme_url"])
@@ -325,7 +341,7 @@ def run_github_readme_discovery(sources: list[dict] | None = None) -> dict:
         if not parser_fn:
             log.error("[%s] Unknown parser: %s", source["name"], source["parser"])
             continue
-        jobs = parser_fn(readme)
+        jobs = parser_fn(readme, preferred_cities)
         log.info("[%s] Parsed %d qualifying listings", source["name"], len(jobs))
         for j in jobs:
             j["_source_name"] = source["name"]

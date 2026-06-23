@@ -515,31 +515,70 @@ def _setup_availability(profile: dict) -> None:
 # Search config
 # ---------------------------------------------------------------------------
 
-def _setup_searches() -> None:
+CANADIAN_CITIES = [
+    ("Toronto, ON",   "toronto"),
+    ("Ottawa, ON",    "ottawa"),
+    ("Vancouver, BC", "vancouver"),
+    ("Montreal, QC",  "montreal"),
+    ("Waterloo, ON",  "waterloo"),
+    ("Calgary, AB",   "calgary"),
+    ("Edmonton, AB",  "edmonton"),
+    ("Winnipeg, MB",  "winnipeg"),
+]
+
+
+def _setup_searches(profile: dict | None = None) -> None:
     console.print(Panel("[bold]Step 4: Job Search Config[/bold]\nWhat you're looking for and where."))
 
-    location     = Prompt.ask("Target location (e.g. 'Canada', 'Remote', 'Toronto, ON')", default="Canada")
-    distance_str = Prompt.ask("Search radius in km (0 = remote-only)", default="0")
-    try:
-        distance = int(distance_str)
-    except ValueError:
-        distance = 0
+    console.print("\n[bold cyan]Target Cities[/bold cyan] [dim](space to toggle, enter to confirm)[/dim]")
+    for i, (label, _) in enumerate(CANADIAN_CITIES, 1):
+        console.print(f"  [{i}] {label}")
+    console.print("  [A] All cities")
 
-    roles_raw = Prompt.ask("Target job titles (comma-separated, e.g. 'Software Engineer Intern, Backend Developer')")
-    roles = [r.strip() for r in roles_raw.split(",") if r.strip()] or ["Software Engineer Intern"]
+    raw = Prompt.ask("\nEnter numbers (e.g. 1,3) or A for all", default="1")
+    if raw.strip().lower() == "a":
+        chosen = [key for _, key in CANADIAN_CITIES]
+        chosen_labels = [label for label, _ in CANADIAN_CITIES]
+    else:
+        indices = [int(x.strip()) - 1 for x in raw.split(",") if x.strip().isdigit()]
+        indices = [i for i in indices if 0 <= i < len(CANADIAN_CITIES)]
+        if not indices:
+            indices = [0]  # default to Toronto
+        chosen = [CANADIAN_CITIES[i][1] for i in indices]
+        chosen_labels = [CANADIAN_CITIES[i][0] for i in indices]
+
+    include_remote = Confirm.ask("Include remote positions?", default=True)
+    if include_remote:
+        chosen.append("remote")
+
+    if profile is not None:
+        profile["preferred_cities"] = chosen
+
+    roles_raw = Prompt.ask(
+        "\nTarget job titles (comma-separated)",
+        default="Software Intern, Software Developer Intern, Backend Engineer Intern"
+    )
+    roles = [r.strip() for r in roles_raw.split(",") if r.strip()] or ["Software Intern"]
+
+    location_lines = []
+    for label in chosen_labels:
+        location_lines.append(f'  - location: "{label}"')
+        location_lines.append(f"    remote: false")
+    if include_remote:
+        location_lines.append(f'  - location: "Canada"')
+        location_lines.append(f"    remote: true")
 
     lines = [
         "# ApplyPilot search configuration",
         "",
         "defaults:",
-        f'  location: "{location}"',
-        f"  distance: {distance}",
-        "  hours_old: 72",
+        f'  location: "{chosen_labels[0] if chosen_labels else "Toronto, ON"}"',
+        "  distance: 50",
+        "  hours_old: 168",
         "  results_per_site: 50",
         "",
         "locations:",
-        f'  - location: "{location}"',
-        f"    remote: {str(distance == 0).lower()}",
+        *location_lines,
         "",
         "queries:",
     ]
@@ -548,6 +587,7 @@ def _setup_searches() -> None:
         lines.append(f"    tier: {min(i + 1, 3)}")
 
     SEARCH_CONFIG_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    console.print(f"[green]Cities: {', '.join(chosen_labels)}{' + Remote' if include_remote else ''}[/green]")
     console.print(f"[green]Search config saved to {SEARCH_CONFIG_PATH}[/green]")
 
 
@@ -727,7 +767,7 @@ def run_wizard() -> None:
             _setup_resume_facts(profile, template)
             _setup_availability(profile)
         elif n == 4:
-            _setup_searches()
+            _setup_searches(profile)
         elif n == 5:
             _setup_env(profile)
         _save_profile(profile)
