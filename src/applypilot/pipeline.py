@@ -35,7 +35,7 @@ console = Console()
 STAGE_ORDER = ("discover", "enrich", "score", "tailor", "cover", "pdf")
 
 STAGE_META: dict[str, dict] = {
-    "discover": {"desc": "Job discovery (JobSpy + Workday + smart extract)"},
+    "discover": {"desc": "Job discovery (GitHub README + JobSpy + Workday + smart extract)"},
     "enrich":   {"desc": "Detail enrichment (full descriptions + apply URLs)"},
     "score":    {"desc": "LLM scoring (fit 1-10)"},
     "tailor":   {"desc": "Resume tailoring (LLM + validation)"},
@@ -60,10 +60,10 @@ _UPSTREAM: dict[str, str | None] = {
 # ---------------------------------------------------------------------------
 
 def _run_discover(workers: int = 1) -> dict:
-    """Stage: Job discovery — GitHub README, Workday, and smart-extract scrapers."""
-    stats: dict = {"github_readme": None, "workday": None, "smartextract": None}
+    """Stage: Job discovery — GitHub README, JobSpy, Workday, and smart-extract scrapers."""
+    stats: dict = {"github_readme": None, "jobspy": None, "workday": None, "smartextract": None}
 
-    # GitHub README — curated Canadian internship lists
+    # GitHub README — curated Canadian internship lists (highest signal, run first)
     console.print("  [cyan]GitHub README discovery...[/cyan]")
     try:
         from applypilot.discovery.github_readme import run_github_readme_discovery
@@ -74,6 +74,20 @@ def _run_discover(workers: int = 1) -> dict:
         log.error("GitHub README discovery failed: %s", e)
         console.print(f"  [red]GitHub README error:[/red] {e}")
         stats["github_readme"] = f"error: {e}"
+
+    # JobSpy — LinkedIn, Indeed, Glassdoor, ZipRecruiter
+    console.print("  [cyan]JobSpy (LinkedIn, Indeed, Glassdoor)...[/cyan]")
+    try:
+        from applypilot.discovery.jobspy import run_discovery as run_jobspy
+        run_jobspy()
+        stats["jobspy"] = "ok"
+    except ImportError:
+        console.print("  [yellow]JobSpy not installed — skipping (run: pip install --no-deps python-jobspy)[/yellow]")
+        stats["jobspy"] = "skipped: not installed"
+    except Exception as e:
+        log.error("JobSpy discovery failed: %s", e)
+        console.print(f"  [red]JobSpy error:[/red] {e}")
+        stats["jobspy"] = f"error: {e}"
 
     # Workday corporate scraper
     console.print("  [cyan]Workday corporate scraper...[/cyan]")
