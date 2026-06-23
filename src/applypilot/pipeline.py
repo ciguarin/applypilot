@@ -89,20 +89,25 @@ def _run_discover(workers: int = 1) -> dict:
         console.print(f"  [red]JobSpy error:[/red] {e}")
         stats["jobspy"] = f"error: {e}"
 
-    # Workday corporate scraper
-    console.print("  [cyan]Workday corporate scraper...[/cyan]")
-    try:
-        from applypilot.discovery.workday import run_workday_discovery
-        run_workday_discovery(workers=workers)
-        stats["workday"] = "ok"
-    except Exception as e:
-        log.error("Workday scraper failed: %s", e)
-        console.print(f"  [red]Workday error:[/red] {e}")
-        stats["workday"] = f"error: {e}"
+    # Workday — disabled by default (20 min runtime, 0 unique high-fit jobs vs LinkedIn)
+    # Enable via APPLYPILOT_WORKDAY=1 in .env
+    import os as _os
+    if _os.environ.get("APPLYPILOT_WORKDAY") == "1":
+        console.print("  [cyan]Workday corporate scraper...[/cyan]")
+        try:
+            from applypilot.discovery.workday import run_workday_discovery
+            run_workday_discovery(workers=workers)
+            stats["workday"] = "ok"
+        except Exception as e:
+            log.error("Workday scraper failed: %s", e)
+            console.print(f"  [red]Workday error:[/red] {e}")
+            stats["workday"] = f"error: {e}"
+    else:
+        console.print("  [dim]Workday skipped (set APPLYPILOT_WORKDAY=1 in .env to enable)[/dim]")
+        stats["workday"] = "skipped"
 
     # Smart extract — disabled by default (low yield, high cost)
     # Enable via APPLYPILOT_SMARTEXTRACT=1 in .env
-    import os as _os
     if _os.environ.get("APPLYPILOT_SMARTEXTRACT") == "1":
         console.print("  [cyan]Smart extract (AI-powered scraping)...[/cyan]")
         try:
