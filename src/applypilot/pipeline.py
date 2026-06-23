@@ -22,7 +22,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from applypilot.config import load_env, ensure_dirs
-from applypilot.database import init_db, get_connection, get_stats
+from applypilot.database import init_db, get_connection, get_stats, prune_stale_jobs
 
 log = logging.getLogger(__name__)
 console = Console()
@@ -62,6 +62,13 @@ _UPSTREAM: dict[str, str | None] = {
 def _run_discover(workers: int = 1) -> dict:
     """Stage: Job discovery — GitHub README, JobSpy, Workday, and smart-extract scrapers."""
     stats: dict = {"github_readme": None, "jobspy": None, "workday": None, "smartextract": None}
+
+    # Prune stale entries before discovering new ones
+    pruned = prune_stale_jobs()
+    if pruned["deleted"] > 0:
+        console.print(f"  [dim]Pruned {pruned['deleted']} expired unscored jobs (>14 days old)[/dim]")
+    if pruned["rescored_flagged"] > 0:
+        console.print(f"  [dim]Flagged {pruned['rescored_flagged']} jobs for rescoring (prompt version changed)[/dim]")
 
     # GitHub README — curated Canadian internship lists (highest signal, run first)
     console.print("  [cyan]GitHub README discovery...[/cyan]")

@@ -153,11 +153,12 @@ def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
         )
 
     # Write scores to DB
+    from applypilot.database import CURRENT_SCORE_VERSION
     now = datetime.now(timezone.utc).isoformat()
     for r in results:
         conn.execute(
-            "UPDATE jobs SET fit_score = ?, score_reasoning = ?, scored_at = ? WHERE url = ?",
-            (r["score"], f"{r['keywords']}\n{r['reasoning']}", now, r["url"]),
+            "UPDATE jobs SET fit_score = ?, score_reasoning = ?, scored_at = ?, score_version = ? WHERE url = ?",
+            (r["score"], f"{r['keywords']}\n{r['reasoning']}", now, CURRENT_SCORE_VERSION, r["url"]),
         )
     conn.commit()
 

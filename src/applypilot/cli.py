@@ -524,31 +524,50 @@ def config_show() -> None:
 
     console.print("\n[bold]ApplyPilot Settings[/bold]\n")
 
-    # Cities from profile
+    # Profile
     try:
-        profile = json.loads(PROFILE_PATH.read_text())
+        profile = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
+        p = profile.get("personal", {})
+        name = f"{p.get('preferred_name', p.get('first_name', '?'))} {p.get('last_name', '')}".strip()
+        console.print(f"  [cyan]name[/cyan]          {name}")
+        console.print(f"  [cyan]email[/cyan]         {p.get('email', 'not set')}")
+        console.print(f"  [cyan]linkedin[/cyan]      {p.get('linkedin_url', 'not set')}")
+        console.print(f"  [cyan]github[/cyan]        {p.get('github_url', 'not set')}")
         cities = profile.get("preferred_cities", ["toronto", "remote"])
         console.print(f"  [cyan]cities[/cyan]        {', '.join(cities)}")
-        console.print(f"  [cyan]name[/cyan]          {profile.get('personal', {}).get('first_name', '?')} {profile.get('personal', {}).get('last_name', '?')}")
     except (FileNotFoundError, json.JSONDecodeError):
         console.print("  [red]profile.json not found — run applypilot init[/red]")
 
-    # Queries from searches.yaml
+    console.print()
+
+    # Searches
     try:
         import yaml
-        cfg = yaml.safe_load(SEARCH_CONFIG_PATH.read_text())
+        cfg = yaml.safe_load(SEARCH_CONFIG_PATH.read_text(encoding="utf-8"))
         queries = [q["query"] for q in cfg.get("queries", [])]
+        defaults = cfg.get("defaults", {})
         console.print(f"  [cyan]queries[/cyan]       {', '.join(queries)}")
-        console.print(f"  [cyan]hours_old[/cyan]     {cfg.get('defaults', {}).get('hours_old', 168)}")
+        console.print(f"  [cyan]sites[/cyan]         {', '.join(cfg.get('sites', ['indeed', 'linkedin']))}")
+        console.print(f"  [cyan]hours_old[/cyan]     {defaults.get('hours_old', 168)}")
+        console.print(f"  [cyan]results/site[/cyan]  {defaults.get('results_per_site', 50)}")
     except (FileNotFoundError, Exception):
         console.print("  [red]searches.yaml not found — run applypilot init[/red]")
 
-    # LLM from env
+    console.print()
+
+    # LLM / API
     model = os.environ.get("LLM_MODEL", "gemini-2.0-flash")
-    provider = "gemini" if os.environ.get("GEMINI_API_KEY") else \
-               "openai" if os.environ.get("OPENAI_API_KEY") else \
-               os.environ.get("LLM_URL", "not set")
+    if os.environ.get("GEMINI_API_KEY"):
+        provider = "gemini"
+    elif os.environ.get("OPENAI_API_KEY"):
+        provider = "openai"
+    elif os.environ.get("LLM_URL"):
+        provider = os.environ.get("LLM_URL")
+    else:
+        provider = "not set"
+    min_score = os.environ.get("APPLYPILOT_MIN_SCORE", "7")
     console.print(f"  [cyan]llm[/cyan]           {provider} / {model}")
+    console.print(f"  [cyan]min score[/cyan]     {min_score}")
     console.print()
 
 
@@ -627,16 +646,182 @@ def config_model() -> None:
 
 
 @config_app.command("score")
-def config_score(
-    threshold: int = typer.Argument(..., help="Minimum fit score (1-10) for tailoring and auto-apply."),
-) -> None:
-    """Set the minimum fit score threshold."""
-    if not 1 <= threshold <= 10:
-        console.print("[red]Score must be between 1 and 10.[/red]")
+def config_score() -> None:
+    """Set the minimum fit score threshold (persisted to .env)."""
+    import re
+    from applypilot.config import ENV_PATH, load_env
+    from rich.prompt import Prompt
+
+    load_env()
+    import os
+    current = os.environ.get("APPLYPILOT_MIN_SCORE", "7")
+    console.print(f"\nCurrent minimum score: [cyan]{current}[/cyan]\n")
+
+    raw = Prompt.ask("New minimum score (1-10)")
+    try:
+        threshold = int(raw.strip())
+        if not 1 <= threshold <= 10:
+            raise ValueError
+    except ValueError:
+        console.print("[red]Score must be an integer between 1 and 10.[/red]")
         raise typer.Exit(1)
-    console.print(f"[green]Min score set to {threshold}.[/green]")
-    console.print(f"[dim]Pass it at runtime: applypilot run --min-score {threshold}[/dim]")
-    console.print(f"[dim]Or: applypilot apply --min-score {threshold}[/dim]")
+
+    env_text = ENV_PATH.read_text(encoding="utf-8") if ENV_PATH.exists() else ""
+    if "APPLYPILOT_MIN_SCORE=" in env_text:
+        env_text = re.sub(r"APPLYPILOT_MIN_SCORE=.*", f"APPLYPILOT_MIN_SCORE={threshold}", env_text)
+    else:
+        env_text += f"\nAPPLYPILOT_MIN_SCORE={threshold}\n"
+    ENV_PATH.write_text(env_text, encoding="utf-8")
+    console.print(f"[green]Min score set to {threshold}[/green]")
+    console.print(f"[dim]You can still override per-run: applypilot run --min-score {threshold}[/dim]")
+
+
+@config_app.command("profile")
+def config_profile() -> None:
+    """Update your personal info (name, email, phone, LinkedIn, GitHub)."""
+    import json
+    from applypilot.config import PROFILE_PATH
+    from rich.prompt import Prompt
+
+    try:
+        profile = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        console.print("[red]Profile not found. Run applypilot init first.[/red]")
+        raise typer.Exit(1)
+
+    p = profile.setdefault("personal", {})
+
+    console.print("\n[bold]Personal Info[/bold] [dim](press Enter to keep current value)[/dim]\n")
+
+    fields = [
+        ("preferred_name",  "Preferred name",  p.get("preferred_name", "")),
+        ("email",           "Email",            p.get("email", "")),
+        ("phone",           "Phone",            p.get("phone", "")),
+        ("city",            "City",             p.get("city", "")),
+        ("linkedin_url",    "LinkedIn URL",     p.get("linkedin_url", "")),
+        ("github_url",      "GitHub URL",       p.get("github_url", "")),
+        ("portfolio_url",   "Portfolio URL",    p.get("portfolio_url", "")),
+    ]
+
+    changed = False
+    for key, label, current in fields:
+        display = f"[cyan]{current}[/cyan]" if current else "[dim]not set[/dim]"
+        val = Prompt.ask(f"  {label} ({display})", default=current)
+        if val != current:
+            p[key] = val
+            changed = True
+
+    if changed:
+        PROFILE_PATH.write_text(json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8")
+        console.print("\n[green]Profile updated.[/green]")
+    else:
+        console.print("\n[dim]No changes made.[/dim]")
+
+
+@config_app.command("resume")
+def config_resume() -> None:
+    """Open your resume for editing."""
+    import os, subprocess
+    from applypilot.config import APP_DIR
+
+    resume_path = APP_DIR / "resume.txt"
+    if not resume_path.exists():
+        console.print("[red]resume.txt not found. Run applypilot init first.[/red]")
+        raise typer.Exit(1)
+
+    editor = os.environ.get("EDITOR", "nano")
+    console.print(f"Opening resume in [cyan]{editor}[/cyan]...")
+    subprocess.run([editor, str(resume_path)])
+    console.print("[green]Resume saved.[/green]")
+
+
+@config_app.command("searches")
+def config_searches() -> None:
+    """Update search settings (hours lookback, results per site, sites)."""
+    import yaml, re
+    from applypilot.config import SEARCH_CONFIG_PATH
+    from rich.prompt import Prompt
+
+    try:
+        cfg = yaml.safe_load(SEARCH_CONFIG_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        console.print("[red]searches.yaml not found. Run applypilot init first.[/red]")
+        raise typer.Exit(1)
+
+    defaults = cfg.setdefault("defaults", {})
+    console.print("\n[bold]Search Settings[/bold] [dim](press Enter to keep current value)[/dim]\n")
+
+    # hours_old
+    current_hours = str(defaults.get("hours_old", 168))
+    raw = Prompt.ask(f"  Hours lookback [cyan]{current_hours}[/cyan] (168 = 1 week)")
+    if raw.strip() and raw.strip() != current_hours:
+        try:
+            defaults["hours_old"] = int(raw.strip())
+        except ValueError:
+            console.print("[yellow]Invalid number, keeping current.[/yellow]")
+
+    # results_per_site
+    current_rps = str(defaults.get("results_per_site", 50))
+    raw = Prompt.ask(f"  Results per site [cyan]{current_rps}[/cyan]")
+    if raw.strip() and raw.strip() != current_rps:
+        try:
+            defaults["results_per_site"] = int(raw.strip())
+        except ValueError:
+            console.print("[yellow]Invalid number, keeping current.[/yellow]")
+
+    # sites
+    current_sites = ", ".join(cfg.get("sites", ["indeed", "linkedin"]))
+    raw = Prompt.ask(f"  Sites [cyan]{current_sites}[/cyan] (comma-separated: indeed, linkedin, glassdoor)")
+    if raw.strip() and raw.strip() != current_sites:
+        cfg["sites"] = [s.strip() for s in raw.split(",") if s.strip()]
+
+    SEARCH_CONFIG_PATH.write_text(yaml.dump(cfg, default_flow_style=False, allow_unicode=True), encoding="utf-8")
+    console.print("\n[green]Search settings updated.[/green]")
+
+
+@config_app.command("api")
+def config_api() -> None:
+    """Update your API keys and LLM provider."""
+    import re, os
+    from applypilot.config import ENV_PATH, load_env
+    from rich.prompt import Prompt
+
+    load_env()
+    console.print("\n[bold]API Keys[/bold] [dim](press Enter to keep current value)[/dim]\n")
+
+    env_text = ENV_PATH.read_text(encoding="utf-8") if ENV_PATH.exists() else ""
+
+    def _get_env(key: str) -> str:
+        return os.environ.get(key, "")
+
+    def _update_env(text: str, key: str, val: str) -> str:
+        if f"{key}=" in text:
+            return re.sub(rf"{key}=.*", f"{key}={val}", text)
+        return text + f"\n{key}={val}\n"
+
+    fields = [
+        ("GEMINI_API_KEY",  "Gemini API key  (gemini.google.com)"),
+        ("OPENAI_API_KEY",  "OpenAI API key  (platform.openai.com)"),
+        ("LLM_URL",         "OpenRouter/custom base URL  (e.g. https://openrouter.ai/api/v1)"),
+        ("LLM_API_KEY",     "API key for custom URL"),
+        ("LLM_MODEL",       "Model override  (e.g. google/gemini-2.5-flash-lite)"),
+        ("CAPSOLVER_API_KEY", "CapSolver key  (for CAPTCHA solving during apply)"),
+    ]
+
+    changed = False
+    for key, label in fields:
+        current = _get_env(key)
+        masked = f"{current[:6]}…" if len(current) > 8 else ("[dim]not set[/dim]" if not current else current)
+        val = Prompt.ask(f"  {label} ({masked})", default=current, password=("KEY" in key or "key" in key.lower()))
+        if val != current:
+            env_text = _update_env(env_text, key, val)
+            changed = True
+
+    if changed:
+        ENV_PATH.write_text(env_text, encoding="utf-8")
+        console.print("\n[green]API keys updated.[/green]")
+    else:
+        console.print("\n[dim]No changes made.[/dim]")
 
 
 if __name__ == "__main__":

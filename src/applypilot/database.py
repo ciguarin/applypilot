@@ -143,6 +143,9 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
 # Complete column registry: column_name -> SQL type with optional default.
 # This is the single source of truth. Adding a column here is all that's needed
 # for it to appear in both new databases and migrated ones.
+# Bump this when the scoring prompt changes — jobs with older versions get rescored.
+CURRENT_SCORE_VERSION = 1
+
 _ALL_COLUMNS: dict[str, str] = {
     # Discovery
     "url": "TEXT PRIMARY KEY",
@@ -162,6 +165,7 @@ _ALL_COLUMNS: dict[str, str] = {
     "fit_score": "INTEGER",
     "score_reasoning": "TEXT",
     "scored_at": "TEXT",
+    "score_version": "INTEGER",
     # Tailoring
     "tailored_resume_path": "TEXT",
     "tailored_at": "TEXT",
@@ -217,6 +221,63 @@ def ensure_columns(conn: sqlite3.Connection | None = None) -> list[str]:
         conn.commit()
 
     return added
+
+
+def prune_stale_jobs(
+    conn: sqlite3.Connection | None = None,
+    ttl_days: int = 14,
+) -> dict:
+    """Remove stale unprocessed jobs and reset scores from old prompt versions.
+
+    Pruning rules:
+    - Delete unscored jobs (no fit_score) older than ttl_days that haven't been
+      applied to — these are closed/expired listings not worth enriching/scoring.
+    - Reset fit_score/scored_at/score_version on jobs scored with an older
+      score_version so they get re-scored on the next score run.
+
+    Args:
+        conn: Database connection. Uses get_connection() if None.
+        ttl_days: Days after discovery before unscored jobs are pruned.
+
+    Returns:
+        {"deleted": int, "rescored_flagged": int}
+    """
+    if conn is None:
+        conn = get_connection()
+
+    cutoff = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    ).isoformat()
+
+    # Build cutoff timestamp string for comparison (ISO 8601)
+    import datetime as _dt
+    cutoff_dt = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=ttl_days)).isoformat()
+
+    # Delete jobs that were never scored and are old enough to be expired listings.
+    # Never delete jobs that have been applied to or are in progress.
+    cur = conn.execute(
+        """DELETE FROM jobs
+           WHERE fit_score IS NULL
+             AND applied_at IS NULL
+             AND discovered_at < ?""",
+        (cutoff_dt,),
+    )
+    deleted = cur.rowcount
+
+    # Flag jobs scored with an old prompt version for rescoring by clearing
+    # their score fields. The score stage will pick them up on the next run.
+    cur = conn.execute(
+        """UPDATE jobs
+           SET fit_score = NULL, score_reasoning = NULL, scored_at = NULL
+           WHERE score_version IS NOT NULL
+             AND score_version < ?
+             AND applied_at IS NULL""",
+        (CURRENT_SCORE_VERSION,),
+    )
+    rescored_flagged = cur.rowcount
+
+    conn.commit()
+    return {"deleted": deleted, "rescored_flagged": rescored_flagged}
 
 
 def get_stats(conn: sqlite3.Connection | None = None) -> dict:
