@@ -483,6 +483,22 @@ def doctor() -> None:
     console.print()
 
 
+@app.command()
+def update() -> None:
+    """Pull the latest version from GitHub and reinstall."""
+    import subprocess, sys
+    console.print("[bold]Updating ApplyPilot...[/bold]")
+    result = subprocess.run(
+        ["uv", "tool", "install", "git+https://github.com/ciguarin/applypilot@v1", "--force"],
+        capture_output=False,
+    )
+    if result.returncode != 0:
+        console.print("[red]Update failed.[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]Updated to latest v1.[/green]")
+    console.print("[dim]Restart your terminal or run 'hash -r' to pick up any changes.[/dim]")
+
+
 config_app = typer.Typer(help="View and change settings without re-running init.")
 app.add_typer(config_app, name="config")
 
