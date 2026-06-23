@@ -225,6 +225,10 @@ def search_employer(
                 if not _location_ok(loc, accept_locs, reject_locs):
                     continue
 
+            title = j.get("title", "").lower()
+            if not any(kw in title for kw in ("intern", "co-op", "coop", "student", "new grad", "graduate", "apprentice")):
+                continue
+
             all_jobs.append({
                 "title": j.get("title", ""),
                 "location": loc,
