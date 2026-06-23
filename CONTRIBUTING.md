@@ -1,149 +1,105 @@
 # Contributing to ApplyPilot
 
-Thank you for your interest in contributing to ApplyPilot. This guide covers everything you need to get started.
-
 ## Development Setup
 
-### Prerequisites
-
-- Python 3.11 or higher
-- Git
-
-### Clone and Install
-
 ```bash
-git clone https://github.com/Pickle-Pixel/ApplyPilot.git
-cd ApplyPilot
-pip install -e ".[dev]"
-playwright install chromium
+git clone https://github.com/ciguarin/applypilot.git
+cd applypilot
+uv sync --dev
 ```
 
-This installs ApplyPilot in editable mode with all development dependencies (pytest, ruff, etc.) and downloads the Chromium browser binary for Playwright.
-
-### Verify Installation
-
+Run the CLI from source:
 ```bash
-applypilot --version
-pytest tests/ -v
-ruff check src/
+uv run applypilot --version
 ```
 
-## How to Contribute
-
-### Adding New Workday Employers
-
-Workday employer portals are configured in `config/employers.yaml`. To add a new employer:
-
-1. Find the company's Workday career portal URL (usually `https://company.wd5.myworkdaysite.com/`)
-2. Identify the Workday instance number (wd1, wd3, wd5, etc.) and the tenant ID
-3. Add an entry to `config/employers.yaml`:
-
-```yaml
-- name: "Company Name"
-  tenant: "company_tenant_id"
-  instance: "wd5"
-  url: "https://company.wd5.myworkdaysite.com/en-US/recruiting"
-```
-
-4. Test discovery: `applypilot discover --employer "Company Name"`
-5. Submit a PR with the new entry
-
-### Adding New Career Sites
-
-Direct career site scrapers are configured in `config/sites.yaml`. To add a new site:
-
-1. Inspect the company's careers page and identify the job listing structure
-2. Add an entry to `config/sites.yaml` with CSS selectors:
-
-```yaml
-- name: "Company Name"
-  url: "https://company.com/careers"
-  selectors:
-    job_list: ".job-listing"
-    title: ".job-title"
-    location: ".job-location"
-    link: "a.job-link"
-    description: ".job-description"
-```
-
-3. Test: `applypilot discover --site "Company Name"`
-4. Submit a PR
-
-### Bug Fixes and Features
-
-1. Check existing [issues](https://github.com/Pickle-Pixel/ApplyPilot/issues) to avoid duplicating work
-2. For new features, open an issue first to discuss the approach
-3. Fork the repo and create a feature branch from `main`
-4. Write your code with type hints and docstrings
-5. Add tests for new functionality
-6. Update the CHANGELOG.md under an `[Unreleased]` section
-7. Submit a PR
-
-## Running Tests
-
+Lint:
 ```bash
-# Run all tests
-pytest tests/ -v
-
-# Run a specific test file
-pytest tests/test_scoring.py -v
-
-# Run with coverage
-pytest tests/ --cov=src/applypilot --cov-report=term-missing
+uv run ruff check src/
+uv run ruff check src/ --fix
 ```
-
-## Linting and Code Style
-
-ApplyPilot uses [Ruff](https://docs.astral.sh/ruff/) for linting and formatting.
-
-```bash
-# Check for issues
-ruff check src/
-
-# Auto-fix what can be fixed
-ruff check src/ --fix
-
-# Format code
-ruff format src/
-```
-
-### Code Style Guidelines
-
-- **Type hints**: All function signatures must have type annotations
-- **Docstrings**: All public functions and classes must have docstrings (Google style)
-- **Naming**: snake_case for functions and variables, PascalCase for classes
-- **Imports**: Sorted by Ruff (isort-compatible)
-- **Line length**: 100 characters maximum
-
-## PR Guidelines
-
-- **One feature per PR.** Keep changes focused and reviewable.
-- **Include tests.** New features need test coverage. Bug fixes need a regression test.
-- **Update CHANGELOG.md.** Add your changes under `[Unreleased]`.
-- **Write a clear PR description.** Explain what changed and why.
-- **Keep commits clean.** Squash fixup commits before requesting review.
-- **CI must pass.** All linting and tests must be green.
 
 ## Project Structure
 
 ```
-ApplyPilot/
-├── src/applypilot/       # Main package
-│   ├── __init__.py
-│   ├── cli.py            # CLI entry points
-│   ├── discover/         # Stage 1: job discovery scrapers
-│   ├── enrich/           # Stage 2: description extraction
-│   ├── score/            # Stage 3: AI scoring
-│   ├── tailor/           # Stage 4: resume tailoring
-│   ├── cover/            # Stage 5: cover letter generation
-│   ├── apply/            # Stage 6: browser automation
-│   └── utils/            # Shared utilities
-├── config/               # Default configuration files
-├── tests/                # Test suite
-├── docs/                 # Documentation
-└── pyproject.toml        # Package configuration
+applypilot/
+├── src/applypilot/
+│   ├── cli.py                  # CLI entry points (typer)
+│   ├── pipeline.py             # Stage orchestrator
+│   ├── config.py               # Config loading, tier detection
+│   ├── database.py             # SQLite schema + queries
+│   ├── llm.py                  # Multi-provider LLM client
+│   ├── discovery/
+│   │   ├── github_readme.py    # Canadian internship lists (primary source)
+│   │   ├── workday.py          # Corporate Workday portals
+│   │   └── smartextract.py     # AI-powered URL scraping
+│   ├── enrichment/
+│   │   └── detail.py           # Full description + apply URL fetch
+│   ├── scoring/
+│   │   ├── scorer.py           # LLM fit scoring
+│   │   ├── tailor.py           # Resume tailoring
+│   │   ├── cover_letter.py     # Cover letter generation
+│   │   ├── validator.py        # Resume output validation
+│   │   └── pdf.py              # LaTeX PDF via resumake
+│   ├── apply/
+│   │   ├── launcher.py         # Chrome worker + Claude Code orchestration
+│   │   └── prompt.py           # Apply agent prompt builder
+│   ├── wizard/
+│   │   └── init.py             # Setup wizard (applypilot init)
+│   ├── config/
+│   │   ├── profile.example.json
+│   │   ├── searches.example.yaml
+│   │   ├── employers.yaml      # Workday employer list
+│   │   ├── sites.yaml          # ATS site config
+│   │   └── .env.example
+│   └── scripts/
+│       ├── apply_daemon.sh     # macOS/Linux 12h daemon
+│       └── launchagents/
+│           └── com.applypilot.apply.plist.template
+├── install.sh                  # macOS one-liner installer
+├── install.ps1                 # Windows one-liner installer
+└── pyproject.toml
 ```
+
+## Adding Canadian Employers (Workday)
+
+Edit `src/applypilot/config/employers.yaml`. Find the company's Workday URL (format: `https://<tenant>.wd<N>.myworkdayjobs.com`) and add:
+
+```yaml
+company_key:
+  name: "Company Name"
+  tenant: "companytenantid"
+  base_url: "https://companytenantid.wd3.myworkdayjobs.com"
+```
+
+Test with `applypilot run discover`.
+
+## Adding GitHub README Sources
+
+Edit `src/applypilot/discovery/github_readme.py`. Add an entry to `DEFAULT_SOURCES`:
+
+```python
+{
+    "key": "unique_key",
+    "name": "Display Name",
+    "readme_url": "https://raw.githubusercontent.com/user/repo/main/README.md",
+    "sha_url": "https://api.github.com/repos/user/repo/commits?path=README.md&per_page=1",
+    "parser": "negarprh",  # or "hanzili" depending on table schema
+}
+```
+
+If the README uses a different table format, add a new parser function and register it in `_PARSERS`.
+
+## Releases
+
+1. Bump `version` in `pyproject.toml`
+2. Update `CHANGELOG.md`
+3. Commit and push to `v1`
+4. `git tag vX.Y.Z && git push origin vX.Y.Z`
+5. `gh release create vX.Y.Z --title "vX.Y.Z" --notes "..."`
+
+Install scripts reference `@v1` (the branch) so users always get the latest on that line. Pin to a specific tag in the install URL when making a breaking change that warrants a new major branch.
 
 ## License
 
-By contributing to ApplyPilot, you agree that your contributions will be licensed under the [GNU Affero General Public License v3.0](LICENSE).
+AGPL-3.0. Contributions are licensed under the same terms.
