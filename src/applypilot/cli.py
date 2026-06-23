@@ -486,7 +486,18 @@ def doctor() -> None:
 @app.command()
 def update() -> None:
     """Pull the latest version from GitHub and reinstall."""
-    import subprocess, sys
+    import subprocess, sys, importlib.metadata as _meta
+    # Detect editable install: dist-info will have a direct_url.json with "editable": true
+    try:
+        import importlib.metadata as _m
+        dist = _m.distribution("applypilot")
+        direct_url = dist.read_text("direct_url.json")
+        if direct_url and '"editable":true' in direct_url.replace(" ", ""):
+            console.print("[yellow]Dev install detected — you're running an editable install.[/yellow]")
+            console.print("[dim]Your changes are already live. Push to git to publish; don't run update.[/dim]")
+            raise typer.Exit(0)
+    except _m.PackageNotFoundError:
+        pass
     console.print("[bold]Updating ApplyPilot...[/bold]")
     result = subprocess.run(
         ["uv", "tool", "install", "git+https://github.com/ciguarin/applypilot@v1", "--force"],

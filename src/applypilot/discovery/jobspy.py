@@ -218,15 +218,15 @@ def _run_one_search(
             "results_wanted": results_per_site,
             "hours_old": hours_old,
             "description_format": "markdown",
-            "country_indeed": defaults.get("country_indeed", "usa"),
+            "country_indeed": defaults.get("country_indeed", "canada"),
             "verbose": 0,
         }
         if s.get("remote"):
             kwargs["is_remote"] = True
         if proxy_config:
             kwargs["proxies"] = [proxy_config["jobspy"]]
-        if "linkedin" in other_sites:
-            kwargs["linkedin_fetch_description"] = True
+        # linkedin_fetch_description causes individual HTTP calls per job and
+        # causes multi-minute timeouts per query. Enrich stage handles this.
         try:
             df = _scrape_with_retry(kwargs, max_retries=max_retries)
             all_dfs.append(df)
@@ -268,12 +268,18 @@ def _run_one_search(
         log.info("[%s] 0 results", label)
         return {"new": 0, "existing": 0, "errors": 0, "filtered": 0, "total": 0, "label": label}
 
-    # Filter by location before storing
+    # Filter by location before storing.
+    # Skip location filtering for remote searches — we already told the source
+    # to return remote jobs, so filtering by city string is redundant and
+    # incorrectly drops jobs whose location string says "Toronto, ON" rather
+    # than "Remote". Only filter when accept_locs is non-empty and the search
+    # itself is not marked remote.
     before = len(df)
-    df = df[df.apply(lambda row: _location_ok(
-        str(row.get("location", "")) if str(row.get("location", "")) != "nan" else None,
-        accept_locs, reject_locs,
-    ), axis=1)]
+    if accept_locs and not s.get("remote"):
+        df = df[df.apply(lambda row: _location_ok(
+            str(row.get("location", "")) if str(row.get("location", "")) != "nan" else None,
+            accept_locs, reject_locs,
+        ), axis=1)]
     filtered = before - len(df)
 
     conn = get_connection()
