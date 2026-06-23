@@ -1,10 +1,11 @@
 # ApplyPilot setup script — Windows
-# Run from PowerShell (as your normal user, no admin required):
+# Usage (run in PowerShell):
 #   Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
-#   & "$env:USERPROFILE\.applypilot\install.ps1"
+#   irm https://raw.githubusercontent.com/ciguarin/applypilot/v1/install.ps1 | iex
 
 $ErrorActionPreference = "Stop"
 $APPLYPILOT_DIR = "$env:USERPROFILE\.applypilot"
+$REPO = "https://github.com/ciguarin/applypilot"
 
 Write-Host "=== ApplyPilot Setup ==="
 
@@ -16,39 +17,17 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
 }
 Write-Host "OK uv $(uv --version)"
 
-# ── 2. applypilot ─────────────────────────────────────────────────────────────
+# ── 2. applypilot (install from git) ──────────────────────────────────────────
 Write-Host "Installing applypilot..."
-uv tool install applypilot
+uv tool install "git+$REPO@v1" --force
 $env:PATH = "$env:USERPROFILE\.local\bin;$env:PATH"
 Write-Host "OK applypilot $(applypilot --version 2>$null)"
 
-# ── 3. patches ────────────────────────────────────────────────────────────────
-Write-Host "Applying patches..."
 $uvToolDir = & uv tool dir
 $uvPython  = Join-Path $uvToolDir "applypilot\Scripts\python.exe"
-$dst = & $uvPython -c "import applypilot, os; print(os.path.dirname(applypilot.__file__))"
-$src = Join-Path $APPLYPILOT_DIR "patches"
+$pkg = & $uvPython -c "import applypilot, os; print(os.path.dirname(applypilot.__file__))"
 
-@(
-    "scoring\validator.py",
-    "scoring\tailor.py",
-    "scoring\pdf.py",
-    "cli.py",
-    "apply\prompt.py",
-    "apply\launcher.py",
-    "wizard\init.py",
-    "discovery\github_readme.py"
-) | ForEach-Object {
-    Copy-Item -Force (Join-Path $src $_) (Join-Path $dst $_)
-}
-Write-Host "OK Patches applied to $dst"
-
-# ── 4. Python extras ──────────────────────────────────────────────────────────
-Write-Host "Installing Python extras..."
-& uv pip install --python $uvPython --quiet pypdf
-Write-Host "OK pypdf (PDF-to-text conversion)"
-
-# ── 5. Node.js MCPs ───────────────────────────────────────────────────────────
+# ── 3. Node.js MCPs ───────────────────────────────────────────────────────────
 if (Get-Command npm -ErrorAction SilentlyContinue) {
     Write-Host "Pre-installing Node.js MCPs..."
     npm install -g --silent @playwright/mcp @codefuturist/email-mcp
@@ -58,7 +37,7 @@ if (Get-Command npm -ErrorAction SilentlyContinue) {
     Write-Host "  Install Node.js from https://nodejs.org to pre-cache them"
 }
 
-# ── 6. Browser ────────────────────────────────────────────────────────────────
+# ── 4. Browser ────────────────────────────────────────────────────────────────
 $browserPaths = @(
     "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
     "$env:ProgramFiles\BraveSoftware\Brave-Browser\Application\brave.exe",
@@ -79,29 +58,27 @@ if ($foundBrowser) {
     Write-Host "  No browser found and npx unavailable — install Chrome or Node.js"
 }
 
-# ── 7. Config templates (only if not already present) ────────────────────────
+# ── 5. Data directory + config templates ──────────────────────────────────────
+New-Item -ItemType Directory -Force -Path "$APPLYPILOT_DIR\logs" | Out-Null
+
 if (-not (Test-Path "$APPLYPILOT_DIR\.env")) {
-    Copy-Item "$APPLYPILOT_DIR\.env.example" "$APPLYPILOT_DIR\.env"
+    Copy-Item "$pkg\config\.env.example" "$APPLYPILOT_DIR\.env"
 }
 if (-not (Test-Path "$APPLYPILOT_DIR\profile.json")) {
-    Copy-Item "$APPLYPILOT_DIR\config\profile.example.json" "$APPLYPILOT_DIR\profile.json"
+    Copy-Item "$pkg\config\profile.example.json" "$APPLYPILOT_DIR\profile.json"
 }
 if (-not (Test-Path "$APPLYPILOT_DIR\searches.yaml")) {
-    Copy-Item "$APPLYPILOT_DIR\config\searches.example.yaml" "$APPLYPILOT_DIR\searches.yaml"
+    Copy-Item "$pkg\config\searches.example.yaml" "$APPLYPILOT_DIR\searches.yaml"
 }
 Write-Host "OK Config templates ready"
 
-# ── 8. Task Scheduler (12h apply daemon) ─────────────────────────────────────
-$taskName = "ApplyPilot.Apply"
-$logDir   = "$APPLYPILOT_DIR\logs"
-New-Item -ItemType Directory -Force -Path $logDir | Out-Null
-
-# Write the daemon script (equivalent of apply_daemon.sh)
+# ── 6. Daemon script ──────────────────────────────────────────────────────────
+# Write the daemon script (Windows PowerShell equivalent of apply_daemon.sh)
 @"
 `$ErrorActionPreference = 'SilentlyContinue'
 `$db = "`$env:USERPROFILE\.applypilot\applypilot.db"
 
-python -c "
+& `$env:USERPROFILE\.local\bin\python -c "
 import sqlite3
 conn = sqlite3.connect(r'`$db')
 reset = conn.execute(\"UPDATE jobs SET apply_status = NULL WHERE apply_status = 'in_progress'\").rowcount
@@ -112,6 +89,9 @@ if reset: print(f'Reset {reset} stuck jobs')
 applypilot apply --limit 15 --workers 2 --model haiku --headless --max-turns 30 ``
     >> "`$env:USERPROFILE\.applypilot\logs\apply_daemon.log" 2>&1
 "@ | Set-Content "$APPLYPILOT_DIR\apply_daemon.ps1" -Encoding UTF8
+
+# ── 7. Task Scheduler ─────────────────────────────────────────────────────────
+$taskName = "ApplyPilot.Apply"
 
 $action = New-ScheduledTaskAction `
     -Execute "pwsh.exe" `

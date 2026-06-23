@@ -1,0 +1,145 @@
+{
+  "personal": {
+    "full_name": "Jane Doe",
+    "preferred_name": "Jane",
+    "email": "jane@example.com",
+    "phone": "4165550000",
+    "city": "Toronto",
+    "province_state": "Ontario",
+    "country": "Canada",
+    "postal_code": "M5V 0A1",
+    "address": "123 Main Street",
+    "linkedin_url": "https://linkedin.com/in/yourprofile",
+    "github_url": "https://github.com/yourusername",
+    "portfolio_url": "",
+    "website_url": ""
+  },
+  "work_authorization": {
+    "legally_authorized_to_work": true,
+    "require_sponsorship": false,
+    "work_permit_type": "Citizen"
+  },
+  "compensation": {
+    "salary_expectation": "60000",
+    "salary_currency": "CAD",
+    "salary_range_min": "60000",
+    "salary_range_max": "90000"
+  },
+  "experience": {
+    "years_of_experience_total": "2",
+    "education_level": "Bachelor's",
+    "current_title": "Computer Science Student",
+    "target_role": "Software Engineer Intern"
+  },
+  "skills_boundary": {
+    "programming_languages": ["Python", "Java", "TypeScript", "JavaScript", "SQL", "Bash"],
+    "frameworks": ["React", "FastAPI", "Node.js", "Spring Boot"],
+    "tools": ["Docker", "Git", "Linux", "PostgreSQL", "GitHub Actions", "REST API Design"]
+  },
+  "resume_facts": {
+    "preserved_companies": ["Your Company Name", "Another Company"],
+    "preserved_projects": ["Your Project 1", "Your Project 2"],
+    "preserved_school": "Your University | Faculty Name",
+    "graduation_year": "2027",
+    "degree": "Bachelor of Science, Computer Science",
+    "minor": "",
+    "gpa": "3.8",
+    "real_metrics": [
+      "GPA: 3.8",
+      "Reduced build time by 40%",
+      "Processed 500+ records daily"
+    ],
+    "project_dates": {
+      "Your Project 1": "Jan 2024 | Present",
+      "Your Project 2": "Sep 2023 | Dec 2023"
+    },
+    "locked_content": {
+      "_instruction": "Copy every bullet in this block VERBATIM. Do not rephrase, reorder, shorten, or modify any word under any circumstances.",
+      "job1_bullets": [
+        "Your most important locked bullet point from Job 1, copied verbatim from your resume.",
+        "Second locked bullet from Job 1."
+      ]
+    },
+    "project_descriptions": {
+      "your_project_1": {
+        "_tech_stack_default": "Python, FastAPI, PostgreSQL, Docker",
+        "_instruction": "Use 'expanded' for ai_ml and devops_backend roles. Use 'concise' for all others.",
+        "expanded": "Full description of your project for technical roles. Include architecture decisions, scale, and impact.",
+        "concise": "Short 1-2 sentence description of your project for general roles."
+      }
+    },
+    "project_order_by_role": {
+      "_instruction": "Lead with the most relevant project for each role type.",
+      "full_stack_software": ["Your Project 1", "Your Project 2"],
+      "devops_backend": ["Your Project 1", "Your Project 2"],
+      "data_analytics": ["Your Project 2", "Your Project 1"],
+      "ai_ml": ["Your Project 1", "Your Project 2"],
+      "business_analyst": ["Your Project 2", "Your Project 1"],
+      "infrastructure_architecture": ["Your Project 1", "Your Project 2"]
+    },
+    "skills_profiles": {
+      "_instruction": "Select the closest matching profile. You may swap items only if the job description contains a keyword from skills_boundary not in the profile.",
+      "full_stack_software": {
+        "languages_and_frameworks": "Python, TypeScript, JavaScript, SQL, Java, Bash",
+        "tools": "Git, Docker, Linux, PostgreSQL, GitHub Actions, Vercel",
+        "domain_knowledge": "Full-Stack Development, REST API Design, System Design, Agile, SDLC"
+      },
+      "devops_backend": {
+        "languages_and_frameworks": "Python, Bash, Java, TypeScript, SQL",
+        "tools": "Git, Docker, Linux, GitHub Actions, PostgreSQL",
+        "domain_knowledge": "CI/CD, DevOps, System Administration, Automation, Technical Documentation"
+      },
+      "data_analytics": {
+        "languages_and_frameworks": "Python, SQL, Java, Bash, TypeScript",
+        "tools": "Git, Linux, Docker, PostgreSQL",
+        "domain_knowledge": "Data Analysis, Process Automation, Technical Documentation, SDLC"
+      },
+      "ai_ml": {
+        "languages_and_frameworks": "Python, TypeScript, JavaScript, SQL, Java, Bash",
+        "tools": "Git, Docker, Linux, FastAPI",
+        "domain_knowledge": "AI Implementation, LLM Integration, Prompt Engineering, System Design, SDLC"
+      },
+      "business_analyst": {
+        "languages_and_frameworks": "Python, SQL, Java, Bash, TypeScript",
+        "tools": "Git, Linux, Docker",
+        "domain_knowledge": "Business Analysis, Requirements Gathering, Agile, Technical Documentation, SDLC"
+      },
+      "infrastructure_architecture": {
+        "languages_and_frameworks": "Python, Bash, Java, SQL, TypeScript",
+        "tools": "Git, Docker, Linux, GitHub Actions",
+        "domain_knowledge": "Infrastructure Architecture, System Design, Technical Documentation, REST API Design"
+      }
+    }
+  },
+  "tailoring_instructions": {
+    "role_type_detection": {
+      "data_analytics": "Role keywords: SQL, BI, data pipelines, ETL, analytics, reporting, dashboards, data engineering",
+      "infrastructure_architecture": "Role keywords: infrastructure, networking, cloud architecture, system design, platform",
+      "business_analyst": "Role keywords: requirements, user stories, stakeholders, Agile, backlog, business analyst, BA",
+      "devops_backend": "Role keywords: CI/CD, IaC, pipelines, deployment, DevOps, SRE, platform, Terraform, Ansible",
+      "full_stack_software": "Role keywords: frontend, backend, React, web development, full-stack, APIs, software developer",
+      "ai_ml": "Role keywords: LLM, AI agents, machine learning, NLP, embeddings, model training, AI engineer, Claude, GPT"
+    },
+    "absolute_rules": [
+      "NEVER include a summary or objective section.",
+      "NEVER include placeholder text of any kind.",
+      "NEVER fabricate metrics. Only use values present in real_metrics.",
+      "NEVER add skills not present in skills_boundary.",
+      "NEVER modify locked_content bullets. Copy them character-for-character.",
+      "NEVER use filler language: 'passionate about', 'proven ability to', 'leveraged', 'synergy'.",
+      "ALWAYS include GPA in the education line.",
+      "ALWAYS use exactly three skills categories: 'Languages & Frameworks', 'Tools', 'Domain Knowledge'.",
+      "ALWAYS use date format 'MMM YYYY' with a pipe separator (e.g. 'Mar 2024 | May 2024')."
+    ],
+    "tone": "Concise and technical. Initiative-first framing. Every word earns its place."
+  },
+  "eeo_voluntary": {
+    "gender": "Decline to self-identify",
+    "race_ethnicity": "Decline to self-identify",
+    "veteran_status": "Decline to self-identify",
+    "disability_status": "Decline to self-identify"
+  },
+  "availability": {
+    "earliest_start_date": "Immediately"
+  }
+}

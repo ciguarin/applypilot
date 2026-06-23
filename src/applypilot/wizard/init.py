@@ -35,10 +35,12 @@ from applypilot.config import (
 console = Console()
 
 def _load_template() -> dict:
-    # Template is always in the cloned repo at ~/.applypilot/config/, regardless of APPLYPILOT_DIR
+    import applypilot as _ap
+    pkg_config = Path(_ap.__file__).parent / "config" / "profile.example.json"
     candidates = [
         Path.home() / ".applypilot" / "config" / "profile.example.json",
         APP_DIR / "config" / "profile.example.json",
+        pkg_config,
     ]
     for p in candidates:
         if p.exists():

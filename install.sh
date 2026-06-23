@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# ApplyPilot setup script — macOS / Linux
+# ApplyPilot setup script — macOS
+# Usage: curl -fsSL https://raw.githubusercontent.com/ciguarin/applypilot/v1/install.sh | bash
 set -e
 
 APPLYPILOT_DIR="$HOME/.applypilot"
 LAUNCH_AGENTS="$HOME/Library/LaunchAgents"
+REPO="https://github.com/ciguarin/applypilot"
 
 echo "=== ApplyPilot Setup ==="
 
-# ── 1. uv ────────────────────────────────────────────────────────────────────
+# ── 1. uv ─────────────────────────────────────────────────────────────────────
 if ! command -v uv &>/dev/null; then
     echo "Installing uv..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -15,32 +17,17 @@ if ! command -v uv &>/dev/null; then
 fi
 echo "✓ uv $(uv --version)"
 
-# ── 2. applypilot ────────────────────────────────────────────────────────────
+# ── 2. applypilot (install from git) ──────────────────────────────────────────
 echo "Installing applypilot..."
-uv tool install applypilot
+uv tool install "git+$REPO@v1" --force
 export PATH="$HOME/.local/bin:$PATH"
 echo "✓ applypilot $(applypilot --version 2>/dev/null || echo installed)"
 
-# ── 3. patches ───────────────────────────────────────────────────────────────
-echo "Applying patches..."
+# Locate installed package for bundled assets
 APPLYPILOT_PY="$(uv tool dir)/applypilot/bin/python"
-DST="$( "$APPLYPILOT_PY" -c 'import applypilot, os; print(os.path.dirname(applypilot.__file__))' )"
-SRC="$APPLYPILOT_DIR/patches"
-cp "$SRC/scoring/validator.py" "$DST/scoring/validator.py"
-cp "$SRC/scoring/tailor.py"    "$DST/scoring/tailor.py"
-cp "$SRC/scoring/pdf.py"       "$DST/scoring/pdf.py"
-cp "$SRC/cli.py"               "$DST/cli.py"
-cp "$SRC/apply/prompt.py"      "$DST/apply/prompt.py"
-cp "$SRC/apply/launcher.py"    "$DST/apply/launcher.py"
-cp "$SRC/wizard/init.py"       "$DST/wizard/init.py"
-echo "✓ Patches applied to $DST"
+PKG="$("$APPLYPILOT_PY" -c 'import applypilot, os; print(os.path.dirname(applypilot.__file__))')"
 
-# ── 4. Python extras (pure-Python, no system deps) ───────────────────────────
-echo "Installing Python extras..."
-uv pip install --python "$APPLYPILOT_PY" --quiet pypdf
-echo "✓ pypdf (PDF-to-text conversion)"
-
-# ── 5. Node.js MCPs (pre-install so sessions never download at runtime) ───────
+# ── 3. Node.js MCPs (pre-install so sessions never download at runtime) ────────
 if command -v npm &>/dev/null; then
     echo "Pre-installing Node.js MCPs..."
     npm install -g --silent @playwright/mcp @codefuturist/email-mcp
@@ -50,13 +37,15 @@ else
     echo "  Install Node.js from https://nodejs.org to pre-cache them"
 fi
 
-# ── 6. Browser (Playwright Chromium if no system browser found) ───────────────
+# ── 4. Browser (Playwright Chromium if no system browser found) ───────────────
 _has_browser() {
     local browsers=(
         "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
         "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
         "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"
         "/Applications/Chromium.app/Contents/MacOS/Chromium"
+        "/Applications/Vivaldi.app/Contents/MacOS/Vivaldi"
+        "/Applications/Arc.app/Contents/MacOS/Arc"
     )
     for b in "${browsers[@]}"; do
         [[ -f "$b" ]] && return 0
@@ -77,23 +66,27 @@ else
     echo "  No browser found and npx unavailable — install Chrome or Node.js"
 fi
 
-# ── 7. config templates (only if not already present) ────────────────────────
-[[ ! -f "$APPLYPILOT_DIR/.env" ]]          && cp "$APPLYPILOT_DIR/.env.example"               "$APPLYPILOT_DIR/.env"
-[[ ! -f "$APPLYPILOT_DIR/profile.json" ]]  && cp "$APPLYPILOT_DIR/config/profile.example.json" "$APPLYPILOT_DIR/profile.json"
-[[ ! -f "$APPLYPILOT_DIR/searches.yaml" ]] && cp "$APPLYPILOT_DIR/config/searches.example.yaml" "$APPLYPILOT_DIR/searches.yaml"
+# ── 5. Data directory + config templates ──────────────────────────────────────
+mkdir -p "$APPLYPILOT_DIR/logs"
+
+[[ ! -f "$APPLYPILOT_DIR/.env" ]]          && cp "$PKG/config/.env.example"        "$APPLYPILOT_DIR/.env"
+[[ ! -f "$APPLYPILOT_DIR/profile.json" ]]  && cp "$PKG/config/profile.example.json" "$APPLYPILOT_DIR/profile.json"
+[[ ! -f "$APPLYPILOT_DIR/searches.yaml" ]] && cp "$PKG/config/searches.example.yaml" "$APPLYPILOT_DIR/searches.yaml"
 echo "✓ Config templates ready"
 
-# ── 8. LaunchAgents (macOS only) ─────────────────────────────────────────────
-if [[ "$(uname)" == "Darwin" ]]; then
-    mkdir -p "$LAUNCH_AGENTS" "$APPLYPILOT_DIR/logs"
+# ── 6. Daemon script ──────────────────────────────────────────────────────────
+cp "$PKG/scripts/apply_daemon.sh" "$APPLYPILOT_DIR/apply_daemon.sh"
+chmod +x "$APPLYPILOT_DIR/apply_daemon.sh"
 
-    sed "s|__HOME__|$HOME|g" "$APPLYPILOT_DIR/launchagents/com.applypilot.apply.plist.template" \
+# ── 7. LaunchAgent (macOS only) ───────────────────────────────────────────────
+if [[ "$(uname)" == "Darwin" ]]; then
+    mkdir -p "$LAUNCH_AGENTS"
+
+    sed "s|__HOME__|$HOME|g" "$PKG/scripts/launchagents/com.applypilot.apply.plist.template" \
         > "$LAUNCH_AGENTS/com.applypilot.apply.plist"
     launchctl unload "$LAUNCH_AGENTS/com.applypilot.apply.plist" 2>/dev/null || true
     launchctl load   "$LAUNCH_AGENTS/com.applypilot.apply.plist"
     echo "✓ Apply daemon installed (runs every 12h)"
-
-    # GitHub README discovery runs natively inside applypilot — n8n no longer needed
 fi
 
 echo ""

@@ -35,9 +35,9 @@ dev = ["pytest>=7.0", "ruff>=0.1"]
 applypilot = "applypilot.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/Pickle-Pixel/ApplyPilot"
-Repository = "https://github.com/Pickle-Pixel/ApplyPilot"
-Issues = "https://github.com/Pickle-Pixel/ApplyPilot/issues"
+Homepage = "https://github.com/ciguarin/applypilot"
+Repository = "https://github.com/ciguarin/applypilot"
+Issues = "https://github.com/ciguarin/applypilot/issues"
 
 [build-system]
 requires = ["hatchling"]
@@ -47,7 +47,13 @@ build-backend = "hatchling.build"
 packages = ["src/applypilot"]
 
 [tool.hatch.build]
-artifacts = ["src/applypilot/config/*.yaml"]
+artifacts = [
+    "src/applypilot/config/*.yaml",
+    "src/applypilot/config/*.json",
+    "src/applypilot/config/.env.example",
+    "src/applypilot/scripts/*",
+    "src/applypilot/scripts/launchagents/*",
+]
 
 [tool.ruff]
 target-version = "py311"
