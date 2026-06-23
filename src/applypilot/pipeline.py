@@ -100,16 +100,22 @@ def _run_discover(workers: int = 1) -> dict:
         console.print(f"  [red]Workday error:[/red] {e}")
         stats["workday"] = f"error: {e}"
 
-    # Smart extract
-    console.print("  [cyan]Smart extract (AI-powered scraping)...[/cyan]")
-    try:
-        from applypilot.discovery.smartextract import run_smart_extract
-        run_smart_extract(workers=workers)
-        stats["smartextract"] = "ok"
-    except Exception as e:
-        log.error("Smart extract failed: %s", e)
-        console.print(f"  [red]Smart extract error:[/red] {e}")
-        stats["smartextract"] = f"error: {e}"
+    # Smart extract — disabled by default (low yield, high cost)
+    # Enable via APPLYPILOT_SMARTEXTRACT=1 in .env
+    import os as _os
+    if _os.environ.get("APPLYPILOT_SMARTEXTRACT") == "1":
+        console.print("  [cyan]Smart extract (AI-powered scraping)...[/cyan]")
+        try:
+            from applypilot.discovery.smartextract import run_smart_extract
+            run_smart_extract(workers=workers)
+            stats["smartextract"] = "ok"
+        except Exception as e:
+            log.error("Smart extract failed: %s", e)
+            console.print(f"  [red]Smart extract error:[/red] {e}")
+            stats["smartextract"] = f"error: {e}"
+    else:
+        console.print("  [dim]Smart extract skipped (set APPLYPILOT_SMARTEXTRACT=1 in .env to enable)[/dim]")
+        stats["smartextract"] = "skipped"
 
     return stats
 
