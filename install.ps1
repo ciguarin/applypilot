@@ -105,24 +105,15 @@ Add-Content `$log "`$(Get-Date -Format 'HH:mm:ss') -- done"
 
 # ── 7. Task Scheduler ─────────────────────────────────────────────────────────
 $taskName = "ApplyPilot.Apply"
-
 $psExe = if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh.exe" } else { "powershell.exe" }
-$action = New-ScheduledTaskAction `
-    -Execute $psExe `
-    -Argument "-NonInteractive -WindowStyle Hidden -File `"$APPLYPILOT_DIR\apply_daemon.ps1`"" `
-    -WorkingDirectory $APPLYPILOT_DIR
+$daemonArg = "-NonInteractive -WindowStyle Hidden -File `"$APPLYPILOT_DIR\apply_daemon.ps1`""
 
-$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
-    -RepetitionInterval (New-TimeSpan -Hours 12) `
-    -RepetitionDuration (New-TimeSpan -Days 9999)
-
-$settings = New-ScheduledTaskSettingsSet `
-    -ExecutionTimeLimit (New-TimeSpan -Hours 2) `
-    -StartWhenAvailable `
-    -RunOnlyIfNetworkAvailable
-
-Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -RunLevel Highest | Out-Null
+# Use schtasks.exe — avoids PowerShell cmdlet XML duration bugs across PS versions
+schtasks /Delete /TN $taskName /F 2>$null
+schtasks /Create /TN $taskName `
+    /TR "`"$psExe`" $daemonArg" `
+    /SC HOURLY /MO 12 `
+    /RL HIGHEST /F | Out-Null
 Write-Host "OK Apply daemon scheduled (runs every 12h via Task Scheduler)"
 
 Write-Host ""
