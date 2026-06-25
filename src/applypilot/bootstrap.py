@@ -10,24 +10,14 @@ import sys
 from pathlib import Path
 
 
-def _tool_python() -> str | None:
-    r = subprocess.run(["uv", "tool", "dir"], capture_output=True, text=True)
-    if r.returncode != 0:
-        return None
-    tool_dir = r.stdout.strip()
-    if sys.platform == "win32":
-        py = Path(tool_dir) / "applypilot" / "Scripts" / "python.exe"
-    else:
-        py = Path(tool_dir) / "applypilot" / "bin" / "python"
-    return str(py) if py.exists() else None
+def _tool_python() -> str:
+    # sys.executable is the Python running this process — exactly where we need to install.
+    return sys.executable
 
 
 def install_jobspy(console) -> bool:
-    """Install jobspy into the tool venv. Returns True on success."""
+    """Install jobspy into the running Python's venv. Returns True on success."""
     py = _tool_python()
-    if not py:
-        console.print("  [yellow]⚠ Cannot find tool venv Python — skipping jobspy install[/yellow]")
-        return False
 
     # Skip if already installed
     check = subprocess.run([py, "-c", "import jobspy"], capture_output=True)
