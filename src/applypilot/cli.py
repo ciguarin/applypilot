@@ -520,6 +520,17 @@ def doctor() -> None:
 
 
 @app.command()
+def repair() -> None:
+    """Re-run post-install setup: discovery deps and daemon registration."""
+    from applypilot.bootstrap import install_jobspy, register_daemon
+
+    console.print("\n[bold]ApplyPilot Repair[/bold]\n")
+    install_jobspy(console)
+    register_daemon(console)
+    console.print()
+
+
+@app.command()
 def update() -> None:
     """Pull the latest version from GitHub and reinstall."""
     import subprocess, sys, importlib.metadata as _meta
@@ -548,6 +559,8 @@ def update() -> None:
             "}; "
             "Write-Host 'Installing update...'; "
             "uv tool install git+https://github.com/ciguarin/applypilot@v1 --force; "
+            "Write-Host 'Running post-install repair...'; "
+            "applypilot repair; "
             "Write-Host ''; Write-Host 'Done — close this window.'; "
             "Read-Host"
         )
@@ -565,6 +578,9 @@ def update() -> None:
         console.print("[red]Update failed.[/red]")
         raise typer.Exit(1)
     console.print(f"[green]Updated to latest v1.[/green]")
+    from applypilot.bootstrap import install_jobspy, register_daemon
+    install_jobspy(console)
+    register_daemon(console)
     console.print("[dim]Restart your terminal or run 'hash -r' to pick up any changes.[/dim]")
 
 

@@ -821,43 +821,20 @@ def run_wizard() -> None:
         )
     )
 
-    # ── What's next ──────────────────────────────────────────────────────────
-    import platform as _platform, subprocess as _sp
+    # ── Post-install repair (jobspy + daemon) ────────────────────────────────
+    from applypilot.bootstrap import install_jobspy, register_daemon
 
+    console.print()
+    console.print("  [bold]Finishing setup...[/bold]")
+    install_jobspy(console)
+    daemon_ok = register_daemon(console)
+
+    # ── What's next ──────────────────────────────────────────────────────────
     console.print()
     console.print("  [bold]What's next[/bold]\n")
 
-    # Daemon status
-    daemon_ok = False
-    if _platform.system() == "Windows":
-        r = _sp.run(
-            ["schtasks", "/Query", "/TN", "ApplyPilot.Apply", "/FO", "LIST"],
-            capture_output=True, text=True,
-        )
-        if r.returncode == 0:
-            next_run = next(
-                (line.split(":", 1)[1].strip() for line in r.stdout.splitlines() if "Next Run Time" in line),
-                "08:00 and 20:00 daily",
-            )
-            console.print(f"  [green]✓ Background daemon is scheduled[/green] [dim](next run: {next_run})[/dim]")
-            daemon_ok = True
-        else:
-            console.print("  [yellow]⚠ Background daemon not found in Task Scheduler[/yellow]")
-            console.print("  [dim]  Re-run the installer to register it:[/dim]")
-            console.print("  [dim]  irm https://raw.githubusercontent.com/ciguarin/applypilot/v1/install.ps1 | iex[/dim]")
-    elif _platform.system() == "Darwin":
-        r = _sp.run(
-            ["launchctl", "list", "com.applypilot.apply"],
-            capture_output=True, text=True,
-        )
-        if r.returncode == 0:
-            console.print("  [green]✓ Background daemon is loaded[/green] [dim](runs at 08:00 and 20:00 daily)[/dim]")
-            daemon_ok = True
-        else:
-            console.print("  [yellow]⚠ Background daemon not loaded[/yellow]")
-            console.print("  [dim]  Re-run the installer to register it.[/dim]")
-
     if daemon_ok:
+        console.print("  [green]✓ Background daemon is running[/green] [dim](runs at 08:00 and 20:00 daily)[/dim]")
         console.print("  [dim]  The pipeline runs automatically — you don't need to do anything.[/dim]")
 
     console.print()
