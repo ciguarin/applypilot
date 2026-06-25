@@ -405,9 +405,8 @@ def doctor() -> None:
     try:
         import jobspy  # noqa: F401
         results.append(("python-jobspy", ok_mark, "Job board scraping available"))
-    except ImportError:
-        results.append(("python-jobspy", warn_mark,
-                        "pip install --no-deps python-jobspy && pip install pydantic tls-client requests markdownify regex"))
+    except ImportError as e:
+        results.append(("python-jobspy", warn_mark, f"not importable: {e} — run: applypilot repair"))
 
     # --- Tier 2 checks ---
     import os

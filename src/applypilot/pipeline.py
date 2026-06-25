@@ -88,9 +88,9 @@ def _run_discover(workers: int = 1) -> dict:
         from applypilot.discovery.jobspy import run_discovery as run_jobspy
         run_jobspy()
         stats["jobspy"] = "ok"
-    except ImportError:
-        console.print("  [yellow]JobSpy not installed — skipping (run: pip install --no-deps python-jobspy)[/yellow]")
-        stats["jobspy"] = "skipped: not installed"
+    except ImportError as e:
+        console.print(f"  [yellow]JobSpy not available — skipping ({e})[/yellow]")
+        stats["jobspy"] = f"skipped: {e}"
     except Exception as e:
         log.error("JobSpy discovery failed: %s", e)
         console.print(f"  [red]JobSpy error:[/red] {e}")
