@@ -11,8 +11,10 @@ from pathlib import Path
 
 
 def _tool_python() -> str:
-    # sys.executable is the Python running this process — exactly where we need to install.
-    return sys.executable
+    # sys.prefix is the venv root — works even when sys.executable is a uv shim on Windows.
+    if sys.platform == "win32":
+        return str(Path(sys.prefix) / "Scripts" / "python.exe")
+    return str(Path(sys.prefix) / "bin" / "python")
 
 
 def install_jobspy(console) -> bool:
