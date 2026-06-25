@@ -114,7 +114,7 @@ $action = New-ScheduledTaskAction `
 
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
     -RepetitionInterval (New-TimeSpan -Hours 12) `
-    -RepetitionDuration ([TimeSpan]::MaxValue)
+    -RepetitionDuration (New-TimeSpan -Days 9999)
 
 $settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit (New-TimeSpan -Hours 2) `
