@@ -366,6 +366,7 @@ def dashboard() -> None:
 def doctor() -> None:
     """Check your setup and diagnose missing requirements."""
     import shutil
+    from pathlib import Path
     from applypilot.config import (
         load_env, PROFILE_PATH, RESUME_PATH, RESUME_PDF_PATH,
         SEARCH_CONFIG_PATH, ENV_PATH, get_chrome_path,
@@ -457,6 +458,41 @@ def doctor() -> None:
     else:
         results.append(("CapSolver API key", "[dim]optional[/dim]",
                         "Set CAPSOLVER_API_KEY in .env for CAPTCHA solving"))
+
+    # --- Daemon status ---
+    import platform, subprocess as _sp
+    if platform.system() == "Windows":
+        r = _sp.run(
+            ["schtasks", "/Query", "/TN", "ApplyPilot.Apply", "/FO", "LIST"],
+            capture_output=True, text=True,
+        )
+        if r.returncode == 0:
+            next_run = next(
+                (line.split(":", 1)[1].strip() for line in r.stdout.splitlines() if "Next Run Time" in line),
+                "scheduled",
+            )
+            last_run = next(
+                (line.split(":", 1)[1].strip() for line in r.stdout.splitlines() if "Last Run Time" in line),
+                "never",
+            )
+            results.append(("Daemon", ok_mark, f"Task Scheduler — next: {next_run} / last: {last_run}"))
+        else:
+            results.append(("Daemon", fail_mark,
+                            "Not in Task Scheduler — re-run the installer"))
+    elif platform.system() == "Darwin":
+        r = _sp.run(
+            ["launchctl", "list", "com.applypilot.apply"],
+            capture_output=True, text=True,
+        )
+        if r.returncode == 0:
+            results.append(("Daemon", ok_mark, "LaunchAgent loaded (runs at 08:00 and 20:00)"))
+        else:
+            plist = Path.home() / "Library/LaunchAgents/com.applypilot.apply.plist"
+            if plist.exists():
+                results.append(("Daemon", warn_mark,
+                                f"plist exists but not loaded — run: launchctl load {plist}"))
+            else:
+                results.append(("Daemon", fail_mark, "Not installed — re-run the installer"))
 
     # --- Render results ---
     console.print()

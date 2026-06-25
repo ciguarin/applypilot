@@ -820,3 +820,54 @@ def run_wizard() -> None:
             border_style="green",
         )
     )
+
+    # ── What's next ──────────────────────────────────────────────────────────
+    import platform as _platform, subprocess as _sp
+
+    console.print()
+    console.print("  [bold]What's next[/bold]\n")
+
+    # Daemon status
+    daemon_ok = False
+    if _platform.system() == "Windows":
+        r = _sp.run(
+            ["schtasks", "/Query", "/TN", "ApplyPilot.Apply", "/FO", "LIST"],
+            capture_output=True, text=True,
+        )
+        if r.returncode == 0:
+            next_run = next(
+                (line.split(":", 1)[1].strip() for line in r.stdout.splitlines() if "Next Run Time" in line),
+                "08:00 and 20:00 daily",
+            )
+            console.print(f"  [green]✓ Background daemon is scheduled[/green] [dim](next run: {next_run})[/dim]")
+            daemon_ok = True
+        else:
+            console.print("  [yellow]⚠ Background daemon not found in Task Scheduler[/yellow]")
+            console.print("  [dim]  Re-run the installer to register it:[/dim]")
+            console.print("  [dim]  irm https://raw.githubusercontent.com/ciguarin/applypilot/v1/install.ps1 | iex[/dim]")
+    elif _platform.system() == "Darwin":
+        r = _sp.run(
+            ["launchctl", "list", "com.applypilot.apply"],
+            capture_output=True, text=True,
+        )
+        if r.returncode == 0:
+            console.print("  [green]✓ Background daemon is loaded[/green] [dim](runs at 08:00 and 20:00 daily)[/dim]")
+            daemon_ok = True
+        else:
+            console.print("  [yellow]⚠ Background daemon not loaded[/yellow]")
+            console.print("  [dim]  Re-run the installer to register it.[/dim]")
+
+    if daemon_ok:
+        console.print("  [dim]  The pipeline runs automatically — you don't need to do anything.[/dim]")
+
+    console.print()
+    console.print("  [bold]To run the pipeline right now:[/bold]")
+    console.print("    [bold cyan]applypilot run[/bold cyan]               [dim]discover → score → tailor → cover → pdf[/dim]")
+    if tier >= 3:
+        console.print("    [bold cyan]applypilot apply --limit 10[/bold cyan]  [dim]submit up to 10 applications[/dim]")
+    console.print()
+    console.print("  [bold]To check what's happening:[/bold]")
+    console.print("    [bold cyan]applypilot status[/bold cyan]            [dim]pipeline overview[/dim]")
+    console.print("    [bold cyan]applypilot doctor[/bold cyan]            [dim]verify setup and daemon[/dim]")
+    console.print("    [bold cyan]applypilot dashboard[/bold cyan]         [dim]open HTML overview in browser[/dim]")
+    console.print()
