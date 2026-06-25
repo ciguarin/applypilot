@@ -86,7 +86,7 @@ Add-Content `$log "======================================"
 Add-Content `$log "`$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') -- daemon run start"
 Add-Content `$log "======================================"
 
-& `$env:USERPROFILE\.local\bin\python -c "
+& "$uvToolDir\applypilot\Scripts\python.exe" -c "
 import sqlite3
 conn = sqlite3.connect(r'`$db')
 reset = conn.execute(\"UPDATE jobs SET apply_status = NULL WHERE apply_status = 'in_progress'\").rowcount
@@ -106,8 +106,9 @@ Add-Content `$log "`$(Get-Date -Format 'HH:mm:ss') -- done"
 # ── 7. Task Scheduler ─────────────────────────────────────────────────────────
 $taskName = "ApplyPilot.Apply"
 
+$psExe = if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh.exe" } else { "powershell.exe" }
 $action = New-ScheduledTaskAction `
-    -Execute "pwsh.exe" `
+    -Execute $psExe `
     -Argument "-NonInteractive -WindowStyle Hidden -File `"$APPLYPILOT_DIR\apply_daemon.ps1`"" `
     -WorkingDirectory $APPLYPILOT_DIR
 

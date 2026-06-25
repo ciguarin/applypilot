@@ -29,6 +29,7 @@ applypilot init
 ## Requirements
 
 - Python 3.11+
+- [Git](https://git-scm.com) — required by the installer
 - [uv](https://astral.sh/uv) — installed automatically by the script
 - An LLM API key: [Gemini](https://aistudio.google.com) (free tier works), OpenAI, or any OpenRouter model
 - Node.js 18+ and a Chromium browser — only needed for the auto-apply stage (Tier 3)
