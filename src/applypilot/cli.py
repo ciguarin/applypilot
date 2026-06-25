@@ -711,6 +711,32 @@ def config_profile() -> None:
             p[key] = val
             changed = True
 
+    # Universal job-site password
+    console.print("\n[bold]Job Site Password[/bold] [dim](used when creating/logging into ATS accounts)[/dim]\n")
+    current_pw = p.get("password", "")
+    display_pw = "[cyan]****[/cyan]" if current_pw else "[dim]not set[/dim]"
+    new_pw = Prompt.ask(f"  Password ({display_pw})", default=current_pw, password=True)
+    if new_pw != current_pw:
+        p["password"] = new_pw
+        changed = True
+
+    # Google SSO credentials
+    console.print("\n[bold]Google Account[/bold] [dim](for sites configured to use Google SSO login)[/dim]\n")
+    g = profile.setdefault("google_account", {})
+    current_gemail = g.get("email", "")
+    display_gemail = f"[cyan]{current_gemail}[/cyan]" if current_gemail else "[dim]not set[/dim]"
+    new_gemail = Prompt.ask(f"  Google email ({display_gemail})", default=current_gemail)
+    if new_gemail != current_gemail:
+        g["email"] = new_gemail
+        changed = True
+
+    current_gpw = g.get("password", "")
+    display_gpw = "[cyan]****[/cyan]" if current_gpw else "[dim]not set[/dim]"
+    new_gpw = Prompt.ask(f"  Google password ({display_gpw})", default=current_gpw, password=True)
+    if new_gpw != current_gpw:
+        g["password"] = new_gpw
+        changed = True
+
     if changed:
         PROFILE_PATH.write_text(json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8")
         console.print("\n[green]Profile updated.[/green]")

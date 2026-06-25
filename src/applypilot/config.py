@@ -151,6 +151,18 @@ def load_blocked_sso() -> list[str]:
     return cfg.get("blocked_sso", [])
 
 
+def load_login_methods() -> dict[str, str]:
+    """Load per-site login method overrides from sites.yaml.
+
+    Returns a dict mapping URL substrings to login method:
+      "email"         — default email+password (default if not specified)
+      "google_sso"    — click 'Sign in with Google' and handle OAuth
+      "microsoft_sso" — click 'Sign in with Microsoft' and handle OAuth
+    """
+    cfg = load_sites_config()
+    return cfg.get("login_methods", {})
+
+
 def load_base_urls() -> dict[str, str | None]:
     """Load site base URLs for URL resolution from sites.yaml."""
     cfg = load_sites_config()

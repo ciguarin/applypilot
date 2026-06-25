@@ -470,6 +470,11 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         elapsed = int(time.time() - start)
         duration_ms = int((time.time() - start) * 1000)
 
+        if "you've hit your session limit" in output.lower() or "hit your session limit" in output.lower():
+            add_event(f"[W{worker_id}] SESSION LIMIT — stopping")
+            update_state(worker_id, status="session_limit", last_action="Claude session limit hit")
+            return "session_limit", duration_ms
+
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         job_log = config.LOG_DIR / f"claude_{ts}_w{worker_id}_{job.get('site', 'unknown')[:20]}.txt"
         job_log.write_text(output, encoding="utf-8")
@@ -622,7 +627,11 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
             result, duration_ms = run_job(job, port=port, worker_id=worker_id,
                                             model=model, dry_run=dry_run)
 
-            if result == "skipped":
+            if result == "session_limit":
+                release_lock(job["url"])
+                update_state(worker_id, status="done", last_action="session limit — retry after reset")
+                break
+            elif result == "skipped":
                 release_lock(job["url"])
                 add_event(f"[W{worker_id}] Skipped: {job['title'][:30]}")
                 continue

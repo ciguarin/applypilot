@@ -77,6 +77,14 @@ Write-Host "OK Config templates ready"
 @"
 `$ErrorActionPreference = 'SilentlyContinue'
 `$db = "`$env:USERPROFILE\.applypilot\applypilot.db"
+`$log = "`$env:USERPROFILE\.applypilot\logs\apply_daemon.log"
+
+New-Item -ItemType Directory -Force -Path "`$env:USERPROFILE\.applypilot\logs" | Out-Null
+
+Add-Content `$log ""
+Add-Content `$log "======================================"
+Add-Content `$log "`$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') -- daemon run start"
+Add-Content `$log "======================================"
 
 & `$env:USERPROFILE\.local\bin\python -c "
 import sqlite3
@@ -84,10 +92,15 @@ conn = sqlite3.connect(r'`$db')
 reset = conn.execute(\"UPDATE jobs SET apply_status = NULL WHERE apply_status = 'in_progress'\").rowcount
 conn.commit()
 if reset: print(f'Reset {reset} stuck jobs')
-" 2>`$null
+" >> `$log 2>&1
 
-applypilot apply --limit 15 --workers 2 --model haiku --headless --max-turns 30 ``
-    >> "`$env:USERPROFILE\.applypilot\logs\apply_daemon.log" 2>&1
+Add-Content `$log "`$(Get-Date -Format 'HH:mm:ss') -- running pipeline..."
+applypilot run >> `$log 2>&1
+
+Add-Content `$log "`$(Get-Date -Format 'HH:mm:ss') -- running apply..."
+applypilot apply --limit 15 --workers 2 --model haiku --headless >> `$log 2>&1
+
+Add-Content `$log "`$(Get-Date -Format 'HH:mm:ss') -- done"
 "@ | Set-Content "$APPLYPILOT_DIR\apply_daemon.ps1" -Encoding UTF8
 
 # ── 7. Task Scheduler ─────────────────────────────────────────────────────────

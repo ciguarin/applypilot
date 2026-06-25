@@ -363,9 +363,23 @@ def build_prompt(job: dict, tailored_resume: str,
         cl_display = cover_letter_text
 
     phone_digits = "".join(c for c in personal.get("phone", "") if c.isdigit())
+    otp_email = os.environ.get("EMAIL_ADDRESS", personal.get("email", ""))
 
-    from applypilot.config import load_blocked_sso
+    from applypilot.config import load_blocked_sso, load_login_methods
     blocked_sso = load_blocked_sso()
+    login_methods = load_login_methods()
+
+    # Resolve login method for this specific job URL
+    job_url = job.get("application_url") or job.get("url", "")
+    site_login_method = "email"
+    for url_pattern, method in login_methods.items():
+        if url_pattern.lower() in job_url.lower():
+            site_login_method = method
+            break
+
+    google_acct = profile.get("google_account", {})
+    google_email = google_acct.get("email", "")
+    google_password = google_acct.get("password", "")
 
     preferred_name = personal.get("preferred_name", full_name.split()[0])
     last_name = personal.get("last_name", full_name.split()[-1] if " " in full_name else "")
@@ -381,6 +395,8 @@ def build_prompt(job: dict, tailored_resume: str,
 == TOOLS AVAILABLE (do NOT call ToolSearch — all tools are pre-loaded) ==
 - Browser: browser_navigate, browser_snapshot, browser_take_screenshot, browser_click, browser_type, browser_fill_form, browser_evaluate, browser_file_upload, browser_press_key, browser_wait_for, browser_scroll, browser_tabs, browser_run_code_unsafe
 - Email (for OTP/verification only): email:list_emails, email:get_email, email:search_emails, email:move_email
+  IMPORTANT: list_emails reads the inbox at {otp_email}. OTPs sent to {personal['email']} will appear here.
+  NEVER switch the application email to a different address to try to receive OTPs — it will not work.
 Use these directly. NEVER call ToolSearch. NEVER call email:list_accounts — it is not needed and wastes a turn.
 
 == JOB ==
@@ -409,8 +425,9 @@ Cover Letter PDF: {cl_upload_path or 'N/A'}
 - Video/audio verification, selfie, ID photo, biometrics -> RESULT:FAILED:unsafe_verification
 - Freelancing platform (Mercor, Toptal, Upwork, Fiverr, Turing) -> RESULT:FAILED:not_a_job_application
 - Hourly/contract/rate-setting flows (full-time salaried only)
-- SSO login (Google/Microsoft OAuth) -> RESULT:FAILED:sso_required
+- SSO login (Google/Microsoft OAuth) when NOT configured for this site -> RESULT:FAILED:sso_required
 - Payment info, bank details, SSN/SIN
+- Switching to a different email address mid-application to receive OTPs — NEVER do this. {otp_email} is the only readable inbox. If an OTP doesn't arrive there within 20s, retry once, then RESULT:FAILED:email_verification_blocked.
 
 {salary_section}
 
@@ -423,8 +440,34 @@ Cover Letter PDF: {cl_upload_path or 'N/A'}
 4. Click Apply. If email-only: send_email subject "Application for {job['title']} — {display_name}", body=2-3 sentence pitch + contact, attach "{pdf_path}". Output RESULT:APPLIED.
    After clicking Apply: run CAPTCHA DETECT.
 6. Login wall?
-   6a. URL is {', '.join(blocked_sso)} or any SSO/OAuth -> RESULT:FAILED:sso_required.
-   6b. New tab/popup (browser_tabs list)? Switch to it. SSO URL -> RESULT:FAILED:sso_required.
+   Configured login method for this site: {site_login_method.upper()}
+
+   6a. Unexpected SSO redirect to {', '.join(blocked_sso)} when method is NOT google_sso/microsoft_sso -> RESULT:FAILED:sso_required.
+
+{f"""   == GOOGLE SSO LOGIN (configured for this site) ==
+   6b. Look for "Sign in with Google", "Continue with Google", or "Sign in with Google account" button and click it.
+   6c. A popup or new tab will open to accounts.google.com. Call browser_tabs to list tabs and switch to it.
+   6d. On Google's page:
+       - Account picker shown (already signed in): click the account matching {google_email or 'your Google email'}.
+       - Email field shown: type {google_email or '[your Google email]'}, click Next.
+       - Password field shown: type {google_password or '[your Google password]'}, click Next.
+       - "Allow" / permissions dialog: click Allow or Continue.
+       - 2FA prompt: check email or authenticator for code, enter it.
+   6e. After Google auth completes, switch back to the original application tab (browser_tabs).
+   6f. Run CAPTCHA DETECT on the returned page.
+   6g. If Google SSO button not found on login page: fall back to email/password login with {personal['email']} / {personal.get('password', '')}.
+   6h. Email verification/OTP required after login?
+       - Wait 8s, list_emails limit=10, find email from site's domain, get_email, extract code or link, use it.
+         Then: move_email(account='default', emailId=<id>, sourceMailbox='INBOX', destinationMailbox='Archive')
+       - Nothing after 10s wait + retry: RESULT:FAILED:login_issue
+   6i. All failed -> RESULT:FAILED:login_issue.""" if site_login_method == "google_sso" else f"""   == MICROSOFT SSO LOGIN (configured for this site) ==
+   6b. Look for "Sign in with Microsoft" button and click it.
+   6c. A popup or new tab will open. Call browser_tabs and switch to it.
+   6d. On Microsoft's page: enter {google_email or '[your Microsoft email]'}, click Next, enter password, click Sign in.
+   6e. "Stay signed in?" -> click Yes. Switch back to original tab.
+   6f. Email verification/OTP required? Same flow as 6h below.
+   6g. All failed -> RESULT:FAILED:login_issue.""" if site_login_method == "microsoft_sso" else f"""   == EMAIL/PASSWORD LOGIN ==
+   6b. New tab/popup (browser_tabs list)? Switch to it. Unexpected SSO URL -> RESULT:FAILED:sso_required.
    6c. Regular login: {personal['email']} / {personal.get('password', '')}
    6d. After Login click: run CAPTCHA DETECT.
    6e. Login failed (wrong password / "invalid credentials" / "email already registered")?
@@ -448,7 +491,7 @@ Cover Letter PDF: {cl_upload_path or 'N/A'}
        - Nothing relevant in last 10 emails: wait 10s more, call list_emails again once.
        - Still nothing: RESULT:FAILED:login_issue
    6g. Switch back to application tab if needed.
-   6h. All failed -> RESULT:FAILED:login_issue.
+   6h. All failed -> RESULT:FAILED:login_issue."""}
 7. Upload resume: delete existing first, browser_file_upload with PDF path. Always upload fresh.
 8. Cover letter field? Text -> paste. File -> upload PDF.
 9. Check ALL pre-filled fields. ATS parsers are wrong. Fix "Current Job Title" and everything else against profile.

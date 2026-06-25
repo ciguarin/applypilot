@@ -1,4 +1,9 @@
 {
+  "google_account": {
+    "_comment": "Used for Google SSO login on sites configured with 'google_sso' in sites.yaml login_methods",
+    "email": "",
+    "password": ""
+  },
   "personal": {
     "full_name": "Jane Doe",
     "preferred_name": "Jane",

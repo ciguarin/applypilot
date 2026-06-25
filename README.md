@@ -32,6 +32,7 @@ applypilot init
 - [uv](https://astral.sh/uv) — installed automatically by the script
 - An LLM API key: [Gemini](https://aistudio.google.com) (free tier works), OpenAI, or any OpenRouter model
 - Node.js 18+ and a Chromium browser — only needed for the auto-apply stage (Tier 3)
+- [Claude Code](https://claude.ai/code) CLI — only needed for the auto-apply stage (Tier 3)
 
 ---
 
@@ -130,7 +131,7 @@ applypilot config resume      # open resume.txt in your editor
 
 ## Scheduling
 
-The installer sets up a background daemon that runs `applypilot run` every 12 hours:
+The installer sets up a background daemon that runs `applypilot run` followed by `applypilot apply` every 12 hours:
 
 - **macOS** — LaunchAgent (`~/Library/LaunchAgents/com.applypilot.apply.plist`)
 - **Windows** — Task Scheduler (`ApplyPilot.Apply`)

@@ -17,12 +17,14 @@ blocked:
     - "accenture"
     - "AccentureCareers"
     - "Workopolis"
+    - "Motorola Solutions"
   url_patterns:
     - "%glassdoor%"
     - "%google.com/about/careers%"
     - "%google.jobs%"
     - "%accenture%"
     - "%workopolis.com/out%"
+    - "%motorolasolutions%"
 
 # ── Blocked SSO domains — cannot authenticate through these ──────────────
 blocked_sso:
@@ -31,6 +33,13 @@ blocked_sso:
   - "okta.com"
   - "auth0.com"
   - "sso.cisco.com"
+
+# ── Per-site login method overrides ──────────────────────────────────────
+# Supported methods: email (default), google_sso, microsoft_sso
+# Matched as URL substrings against the job apply URL.
+# google_sso requires google_account.email + google_account.password in profile.json
+login_methods:
+  "linkedin.com": "google_sso"
 
 # ── Base URLs for URL resolution ─────────────────────────────────────────
 # Used by detail enrichment to resolve relative URLs scraped from sites.
