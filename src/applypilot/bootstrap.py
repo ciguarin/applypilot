@@ -29,25 +29,23 @@ def install_jobspy(console) -> bool:
         console.print("  [yellow]⚠ Cannot find tool venv Python — skipping jobspy install[/yellow]")
         return False
 
-    console.print("  Installing discovery dependencies...")
-    subprocess.run(
-        [py, "-m", "pip", "install", "--no-deps", "python-jobspy", "--quiet"],
-        capture_output=True,
-    )
-    subprocess.run(
-        [py, "-m", "pip", "install", "pydantic", "tls-client", "requests", "markdownify", "regex", "--quiet"],
-        capture_output=True,
-    )
+    # Skip if already installed
+    check = subprocess.run([py, "-c", "import jobspy"], capture_output=True)
+    if check.returncode == 0:
+        console.print("  [green]✓ python-jobspy (already installed)[/green]")
+        return True
 
-    try:
-        import importlib
-        importlib.import_module("jobspy")
+    console.print("  Installing discovery dependencies...")
+    r1 = subprocess.run([py, "-m", "pip", "install", "--no-deps", "python-jobspy"])
+    r2 = subprocess.run([py, "-m", "pip", "install", "pydantic", "tls-client", "requests", "markdownify", "regex"])
+
+    verify = subprocess.run([py, "-c", "import jobspy"], capture_output=True)
+    if verify.returncode == 0:
         console.print("  [green]✓ python-jobspy[/green]")
         return True
-    except ImportError:
-        # Installed into a different interpreter — can't verify here, assume OK
-        console.print("  [green]✓ python-jobspy installed[/green]")
-        return True
+    else:
+        console.print("  [red]✗ jobspy install failed — discovery will be limited to GitHub README sources[/red]")
+        return False
 
 
 def register_daemon(console) -> bool:
