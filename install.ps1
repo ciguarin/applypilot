@@ -106,15 +106,28 @@ Add-Content `$log "`$(Get-Date -Format 'HH:mm:ss') -- done"
 # ── 7. Task Scheduler ─────────────────────────────────────────────────────────
 $taskName = "ApplyPilot.Apply"
 $psExe = if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh.exe" } else { "powershell.exe" }
-$daemonArg = "-NonInteractive -WindowStyle Hidden -File `"$APPLYPILOT_DIR\apply_daemon.ps1`""
 
-# Use schtasks.exe — avoids PowerShell cmdlet XML duration bugs across PS versions
-schtasks /Delete /TN $taskName /F 2>$null
-schtasks /Create /TN $taskName `
-    /TR "`"$psExe`" $daemonArg" `
-    /SC HOURLY /MO 12 `
-    /RL HIGHEST /F | Out-Null
-Write-Host "OK Apply daemon scheduled (runs every 12h via Task Scheduler)"
+$action = New-ScheduledTaskAction `
+    -Execute $psExe `
+    -Argument "-NonInteractive -WindowStyle Hidden -File `"$APPLYPILOT_DIR\apply_daemon.ps1`"" `
+    -WorkingDirectory $APPLYPILOT_DIR
+
+# Two daily triggers = every 12h; avoids RepetitionDuration XML bugs and elevation requirements
+$trigger1 = New-ScheduledTaskTrigger -Daily -At "08:00"
+$trigger2 = New-ScheduledTaskTrigger -Daily -At "20:00"
+
+$settings = New-ScheduledTaskSettingsSet `
+    -ExecutionTimeLimit (New-TimeSpan -Hours 2) `
+    -StartWhenAvailable `
+    -RunOnlyIfNetworkAvailable
+
+Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+Register-ScheduledTask `
+    -TaskName $taskName `
+    -Action $action `
+    -Trigger @($trigger1, $trigger2) `
+    -Settings $settings | Out-Null
+Write-Host "OK Apply daemon scheduled (runs at 08:00 and 20:00 daily)"
 
 Write-Host ""
 Write-Host "=== Done! Run: applypilot init ==="
