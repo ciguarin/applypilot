@@ -510,8 +510,22 @@ def update() -> None:
     console.print("[dim]Restart your terminal or run 'hash -r' to pick up any changes.[/dim]")
 
 
-config_app = typer.Typer(help="View and change settings without re-running init.")
+config_app = typer.Typer(
+    help="View and change settings without re-running init.",
+    invoke_without_command=True,
+)
 app.add_typer(config_app, name="config")
+
+
+@config_app.callback()
+def config_main(ctx: typer.Context) -> None:
+    """Interactive settings — or run a subcommand directly."""
+    if ctx.invoked_subcommand is None:
+        from applypilot.config import load_env, ensure_dirs
+        from applypilot.config_tui import run_settings_tui
+        load_env()
+        ensure_dirs()
+        run_settings_tui()
 
 
 @config_app.command("show")
