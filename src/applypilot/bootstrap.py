@@ -29,7 +29,7 @@ def install_jobspy(console) -> bool:
 
     console.print("  Installing discovery dependencies...")
     r1 = subprocess.run(["uv", "pip", "install", "--no-deps", "python-jobspy", "--python", py])
-    r2 = subprocess.run(["uv", "pip", "install", "pydantic", "tls-client", "requests", "markdownify", "regex", "--python", py])
+    r2 = subprocess.run(["uv", "pip", "install", "pandas", "pydantic", "tls-client", "requests", "markdownify", "regex", "--python", py])
 
     if r1.returncode == 0 and r2.returncode == 0:
         console.print("  [green]✓ python-jobspy[/green]")
