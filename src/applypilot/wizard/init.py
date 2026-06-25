@@ -571,6 +571,10 @@ def _setup_searches(profile: dict | None = None) -> None:
     lines = [
         "# ApplyPilot search configuration",
         "",
+        "sites:",
+        "  - indeed",
+        "  - linkedin",
+        "",
         "defaults:",
         f'  location: "{chosen_labels[0] if chosen_labels else "Toronto, ON"}"',
         "  distance: 50",

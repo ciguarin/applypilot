@@ -307,7 +307,7 @@ def search_jobs(
 ) -> dict:
     """Run a single job search via JobSpy and store results in DB."""
     if sites is None:
-        sites = ["indeed", "linkedin", "zip_recruiter"]
+        sites = ["indeed", "linkedin"]
 
     proxy_config = parse_proxy(proxy) if proxy else None
 
@@ -375,7 +375,7 @@ def _full_crawl(
 ) -> dict:
     """Run all search queries from search config across all locations."""
     if sites is None:
-        sites = ["indeed", "linkedin", "zip_recruiter"]
+        sites = ["indeed", "linkedin"]
 
     # Build search combinations from config
     queries = search_cfg.get("queries", [])
