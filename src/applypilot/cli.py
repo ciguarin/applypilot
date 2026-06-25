@@ -499,6 +499,28 @@ def update() -> None:
     except _m.PackageNotFoundError:
         pass
     console.print("[bold]Updating ApplyPilot...[/bold]")
+
+    if sys.platform == "win32":
+        # Can't overwrite our own exe on Windows while it's running.
+        # Spawn an updater in a new console that waits for the lock to clear.
+        script = (
+            "$exe = (Get-Command applypilot).Source; "
+            "Write-Host 'Waiting for applypilot to release its file lock...'; "
+            "while ($true) { "
+            "  try { $s = [IO.File]::Open($exe,'Open','Read','None'); $s.Close(); break } "
+            "  catch { Start-Sleep 1 } "
+            "}; "
+            "Write-Host 'Installing update...'; "
+            "uv tool install git+https://github.com/ciguarin/applypilot@v1 --force; "
+            "Write-Host ''; Write-Host 'Done — close this window.'; "
+            "Read-Host"
+        )
+        ps = "pwsh.exe" if subprocess.run(["where", "pwsh"], capture_output=True).returncode == 0 else "powershell.exe"
+        subprocess.Popen([ps, "-NoProfile", "-Command", script], creationflags=0x00000010)  # CREATE_NEW_CONSOLE
+        console.print("[green]Updater launched in a new window.[/green]")
+        console.print("[dim]Close this terminal — the updater will complete once the lock clears.[/dim]")
+        raise typer.Exit(0)
+
     result = subprocess.run(
         ["uv", "tool", "install", "git+https://github.com/ciguarin/applypilot@v1", "--force"],
         capture_output=False,
