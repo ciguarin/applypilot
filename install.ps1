@@ -27,7 +27,13 @@ $uvToolDir = & uv tool dir
 $uvPython  = Join-Path $uvToolDir "applypilot\Scripts\python.exe"
 $pkg = & $uvPython -c "import applypilot, os; print(os.path.dirname(applypilot.__file__))"
 
-# ── 3. Node.js MCPs ───────────────────────────────────────────────────────────
+# ── 3. Discovery dependencies (jobspy) ───────────────────────────────────────
+Write-Host "Installing discovery dependencies..."
+& $uvPython -m pip install --no-deps python-jobspy --quiet 2>$null
+& $uvPython -m pip install pydantic tls-client requests markdownify regex --quiet 2>$null
+Write-Host "OK python-jobspy installed"
+
+# ── 4. Node.js MCPs ───────────────────────────────────────────────────────────
 if (Get-Command npm -ErrorAction SilentlyContinue) {
     Write-Host "Pre-installing Node.js MCPs..."
     npm install -g --silent @playwright/mcp @codefuturist/email-mcp
@@ -122,12 +128,18 @@ $settings = New-ScheduledTaskSettingsSet `
     -RunOnlyIfNetworkAvailable
 
 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
-Register-ScheduledTask `
+$taskResult = Register-ScheduledTask `
     -TaskName $taskName `
     -Action $action `
     -Trigger @($trigger1, $trigger2) `
-    -Settings $settings | Out-Null
-Write-Host "OK Apply daemon scheduled (runs at 08:00 and 20:00 daily)"
+    -Settings $settings `
+    -ErrorAction SilentlyContinue
+
+if ($taskResult) {
+    Write-Host "OK Apply daemon scheduled (runs at 08:00 and 20:00 daily)"
+} else {
+    Write-Host "WARN: Daemon scheduling failed — run 'applypilot doctor' to diagnose"
+}
 
 Write-Host ""
 Write-Host "=== Done! Run: applypilot init ==="

@@ -27,7 +27,13 @@ echo "✓ applypilot $(applypilot --version 2>/dev/null || echo installed)"
 APPLYPILOT_PY="$(uv tool dir)/applypilot/bin/python"
 PKG="$("$APPLYPILOT_PY" -c 'import applypilot, os; print(os.path.dirname(applypilot.__file__))')"
 
-# ── 3. Node.js MCPs (pre-install so sessions never download at runtime) ────────
+# ── 3. Discovery dependencies (jobspy) ───────────────────────────────────────
+echo "Installing discovery dependencies..."
+"$APPLYPILOT_PY" -m pip install --no-deps python-jobspy --quiet
+"$APPLYPILOT_PY" -m pip install pydantic tls-client requests markdownify regex --quiet
+echo "✓ python-jobspy installed"
+
+# ── 4. Node.js MCPs (pre-install so sessions never download at runtime) ────────
 if command -v npm &>/dev/null; then
     echo "Pre-installing Node.js MCPs..."
     npm install -g --silent @playwright/mcp @codefuturist/email-mcp
@@ -86,7 +92,11 @@ if [[ "$(uname)" == "Darwin" ]]; then
         > "$LAUNCH_AGENTS/com.applypilot.apply.plist"
     launchctl unload "$LAUNCH_AGENTS/com.applypilot.apply.plist" 2>/dev/null || true
     launchctl load   "$LAUNCH_AGENTS/com.applypilot.apply.plist"
-    echo "✓ Apply daemon installed (runs every 12h)"
+    if launchctl list com.applypilot.apply &>/dev/null; then
+        echo "✓ Apply daemon loaded (runs at 08:00 and 20:00 daily)"
+    else
+        echo "WARN: Daemon not loaded — run 'applypilot doctor' to diagnose"
+    fi
 fi
 
 echo ""
