@@ -39,6 +39,18 @@ def install_jobspy(console) -> bool:
         return False
 
 
+def install_playwright(console) -> bool:
+    """Install Playwright browser (chromium headless shell). Returns True on success."""
+    py = _tool_python()
+    r = subprocess.run([py, "-m", "playwright", "install", "chromium"], capture_output=True)
+    if r.returncode == 0:
+        console.print("  OK Playwright chromium")
+        return True
+    else:
+        console.print(f"  WARN Playwright install failed: {r.stderr.decode(errors='replace').strip()[:200]}")
+        return False
+
+
 def register_daemon(console) -> bool:
     """Register the background daemon. Returns True on success."""
     from applypilot.config import APP_DIR

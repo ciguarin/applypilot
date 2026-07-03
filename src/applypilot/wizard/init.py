@@ -827,11 +827,12 @@ def run_wizard() -> None:
     )
 
     # ── Post-install repair (jobspy + daemon) ────────────────────────────────
-    from applypilot.bootstrap import install_jobspy, register_daemon
+    from applypilot.bootstrap import install_jobspy, install_playwright, register_daemon
 
     console.print()
     console.print("  [bold]Finishing setup...[/bold]")
     install_jobspy(console)
+    install_playwright(console)
     daemon_ok = register_daemon(console)
 
     # ── What's next ──────────────────────────────────────────────────────────

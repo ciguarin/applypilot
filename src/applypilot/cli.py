@@ -524,10 +524,11 @@ def doctor() -> None:
 @app.command()
 def repair() -> None:
     """Re-run post-install setup: discovery deps and daemon registration."""
-    from applypilot.bootstrap import install_jobspy, register_daemon
+    from applypilot.bootstrap import install_jobspy, install_playwright, register_daemon
 
     console.print("\n[bold]ApplyPilot Repair[/bold]\n")
     install_jobspy(console)
+    install_playwright(console)
     register_daemon(console)
     console.print()
 
@@ -585,8 +586,9 @@ def update() -> None:
         console.print("[red]Update failed.[/red]")
         raise typer.Exit(1)
     console.print(f"[green]Updated to latest v1.[/green]")
-    from applypilot.bootstrap import install_jobspy, register_daemon
+    from applypilot.bootstrap import install_jobspy, install_playwright, register_daemon
     install_jobspy(console)
+    install_playwright(console)
     register_daemon(console)
     console.print("[dim]Restart your terminal or run 'hash -r' to pick up any changes.[/dim]")
 
