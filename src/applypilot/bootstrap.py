@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 def _tool_python() -> str:
-    # sys.prefix is the venv root — works even when sys.executable is a uv shim on Windows.
+    # sys.prefix is the venv root -- works even when sys.executable is a uv shim on Windows.
     if sys.platform == "win32":
         return str(Path(sys.prefix) / "Scripts" / "python.exe")
     return str(Path(sys.prefix) / "bin" / "python")
@@ -24,7 +24,7 @@ def install_jobspy(console) -> bool:
     # Skip if already installed
     check = subprocess.run([py, "-c", "import jobspy"], capture_output=True)
     if check.returncode == 0:
-        console.print("  [green]✓ python-jobspy (already installed)[/green]")
+        console.print("  [green]OK python-jobspy (already installed)[/green]")
         return True
 
     console.print("  Installing discovery dependencies...")
@@ -32,10 +32,10 @@ def install_jobspy(console) -> bool:
     r2 = subprocess.run(["uv", "pip", "install", "pandas", "pydantic", "tls-client", "requests", "markdownify", "regex", "--python", py])
 
     if r1.returncode == 0 and r2.returncode == 0:
-        console.print("  [green]✓ python-jobspy[/green]")
+        console.print("  [green]OK python-jobspy[/green]")
         return True
     else:
-        console.print("  [red]✗ jobspy install failed — discovery will be limited to GitHub README sources[/red]")
+        console.print("  [red]FAIL jobspy install failed -- discovery will be limited to GitHub README sources[/red]")
         return False
 
 
@@ -77,10 +77,10 @@ if ($r) {{ exit 0 }} else {{ exit 1 }}
 """
     result = subprocess.run([ps, "-NoProfile", "-Command", script], capture_output=True)
     if result.returncode == 0:
-        console.print("  [green]✓ Daemon registered (runs at 08:00 and 20:00 daily)[/green]")
+        console.print("  [green]OK Daemon registered (runs at 08:00 and 20:00 daily)[/green]")
         return True
     else:
-        console.print("  [yellow]⚠ Daemon registration failed[/yellow]")
+        console.print("  [yellow]WARN Daemon registration failed[/yellow]")
         return False
 
 
@@ -91,7 +91,7 @@ def _register_daemon_macos(console, app_dir: Path) -> bool:
     plist_dest = launch_agents / "com.applypilot.apply.plist"
 
     if not plist_template.exists():
-        console.print("  [yellow]⚠ plist template not found in package[/yellow]")
+        console.print("  [yellow]WARN plist template not found in package[/yellow]")
         return False
 
     launch_agents.mkdir(parents=True, exist_ok=True)
@@ -103,8 +103,8 @@ def _register_daemon_macos(console, app_dir: Path) -> bool:
 
     r = subprocess.run(["launchctl", "list", "com.applypilot.apply"], capture_output=True)
     if r.returncode == 0:
-        console.print("  [green]✓ Daemon loaded (runs at 08:00 and 20:00 daily)[/green]")
+        console.print("  [green]OK Daemon loaded (runs at 08:00 and 20:00 daily)[/green]")
         return True
     else:
-        console.print("  [yellow]⚠ Daemon not loaded — check Console.app for errors[/yellow]")
+        console.print("  [yellow]WARN Daemon not loaded -- check Console.app for errors[/yellow]")
         return False
