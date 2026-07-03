@@ -699,7 +699,7 @@ def main(limit: int = 1, target_url: str | None = None,
     _stop_event.clear()
 
     config.ensure_dirs()
-    console = Console()
+    console = config.make_console()
 
     if continuous:
         effective_limit = 0

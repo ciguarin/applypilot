@@ -17,15 +17,14 @@ import threading
 import time
 from datetime import datetime
 
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from applypilot.config import load_env, ensure_dirs
+from applypilot.config import load_env, ensure_dirs, make_console
 from applypilot.database import init_db, get_connection, get_stats, prune_stale_jobs
 
 log = logging.getLogger(__name__)
-console = Console()
+console = make_console()
 
 
 # ---------------------------------------------------------------------------

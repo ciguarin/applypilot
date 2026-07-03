@@ -8,9 +8,9 @@ import sys
 from dataclasses import dataclass, field
 from typing import Callable
 
-from rich.console import Console
+from applypilot.config import make_console
 
-_con = Console()
+_con = make_console()
 
 
 # ── Key reading ───────────────────────────────────────────────────────────────

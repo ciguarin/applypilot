@@ -24,8 +24,8 @@ app = typer.Typer(
 )
 # Force plain-text mode over SSH / non-TTY (avoids Rich's Win32 console renderer
 # which crashes on Unicode when stdout is a pipe rather than a real console).
-import sys as _sys
-console = Console(force_terminal=_sys.stdout.isatty(), highlight=False)
+from applypilot.config import make_console
+console = make_console()
 log = logging.getLogger(__name__)
 
 # Valid pipeline stages (in execution order)

@@ -15,12 +15,10 @@ import webbrowser
 from html import escape
 from pathlib import Path
 
-from rich.console import Console
-
-from applypilot.config import APP_DIR, DB_PATH
+from applypilot.config import APP_DIR, DB_PATH, make_console
 from applypilot.database import get_connection
 
-console = Console()
+console = make_console()
 
 
 def generate_dashboard(output_path: str | None = None) -> str:

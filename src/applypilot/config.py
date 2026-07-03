@@ -3,7 +3,19 @@
 import os
 import platform
 import shutil
+import sys
 from pathlib import Path
+
+
+def make_console():
+    """Return a Rich Console safe for both interactive and SSH/pipe contexts.
+
+    On Windows, Rich's legacy Win32 renderer fires when stdout is a real
+    console handle and crashes on Unicode over SSH. Forcing force_terminal
+    based on isatty() makes it use plain ANSI output when piped.
+    """
+    from rich.console import Console
+    return Console(force_terminal=sys.stdout.isatty(), highlight=False)
 
 # User data directory — all user-specific files live here
 APP_DIR = Path(os.environ.get("APPLYPILOT_DIR", Path.home() / ".applypilot"))

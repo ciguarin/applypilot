@@ -30,9 +30,10 @@ from applypilot.config import (
     RESUME_PDF_PATH,
     SEARCH_CONFIG_PATH,
     ensure_dirs,
+    make_console,
 )
 
-console = Console()
+console = make_console()
 
 def _load_template() -> dict:
     import applypilot as _ap
