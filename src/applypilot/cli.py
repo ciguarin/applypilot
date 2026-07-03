@@ -22,7 +22,10 @@ app = typer.Typer(
     help="AI-powered end-to-end job application pipeline.",
     no_args_is_help=True,
 )
-console = Console()
+# Force plain-text mode over SSH / non-TTY (avoids Rich's Win32 console renderer
+# which crashes on Unicode when stdout is a pipe rather than a real console).
+import sys as _sys
+console = Console(force_terminal=_sys.stdout.isatty(), highlight=False)
 log = logging.getLogger(__name__)
 
 # Valid pipeline stages (in execution order)
