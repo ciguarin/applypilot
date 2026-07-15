@@ -63,12 +63,12 @@ FABRICATION_WATCHLIST: set[str] = {
     "c#", "c++", "golang", "rust", "ruby",
     "kotlin", "swift", "scala", "matlab",
     # Frameworks for wrong languages
-    "django", "rails", "angular", "vue", "svelte",
+    "spring", "django", "rails", "angular", "vue", "svelte",
     # Hard lies: certifications can't be stretched
     "certif", "certified", "pmp", "scrum master", "aws certified",
 }
 
-REQUIRED_SECTIONS: set[str] = {"TECHNICAL SKILLS", "EXPERIENCE", "PROJECTS", "EDUCATION"}
+REQUIRED_SECTIONS: set[str] = {"SUMMARY", "TECHNICAL SKILLS", "EXPERIENCE", "PROJECTS", "EDUCATION"}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────
@@ -100,7 +100,9 @@ def validate_json_fields(data: dict, profile: dict, mode: str = "normal") -> dic
     """Validate individual JSON fields from an LLM-generated tailored resume.
 
     Args:
-        data:    Parsed JSON from the LLM (title, summary, skills, experience, projects, education).
+        data:    Parsed JSON from the LLM (title, skills, projects). Experience
+                 and education are code-injected from profile.json, not LLM-generated,
+                 so they are not validated here.
         profile: User profile dict from load_profile().
         mode:    Validation strictness — "strict", "normal", or "lenient".
                  strict  → banned words are errors (trigger retries)
@@ -114,16 +116,14 @@ def validate_json_fields(data: dict, profile: dict, mode: str = "normal") -> dic
     warnings: list[str] = []
 
     # Required keys — always checked regardless of mode
-    for key in ("title", "skills", "experience", "projects", "education"):
+    for key in ("title", "skills", "projects"):
         if key not in data or not data[key]:
             errors.append(f"Missing required field: {key}")
     if errors:
         return {"passed": False, "errors": errors, "warnings": warnings}
 
-    # Collect all text for bulk checks (summary is optional — no summary on resume)
-    all_text_parts: list[str] = []
-    if data.get("summary"):
-        all_text_parts.append(data["summary"])
+    # Collect all text for bulk checks
+    all_text_parts: list[str] = [str(data["title"])]
 
     # Skills: check for fabrication (always enforced)
     if isinstance(data["skills"], dict):
@@ -134,35 +134,13 @@ def validate_json_fields(data: dict, profile: dict, mode: str = "normal") -> dic
             if fake in skills_text:
                 errors.append(f"Fabricated skill: '{fake}'")
 
-    # Experience: preserved companies must be present (always enforced)
     resume_facts = profile.get("resume_facts", {})
-    preserved_companies = resume_facts.get("preserved_companies", [])
-
-    if isinstance(data["experience"], list):
-        for company in preserved_companies:
-            has_company = any(
-                company.lower() in str(e.get("header", "")).lower() or
-                company.lower() in str(e.get("subtitle", "")).lower()
-                for e in data["experience"]
-            )
-            if not has_company:
-                errors.append(f"Company '{company}' missing from experience")
-        for entry in data["experience"]:
-            for b in entry.get("bullets", []):
-                all_text_parts.append(b)
 
     # Projects: collect bullets
     if isinstance(data["projects"], list):
         for entry in data["projects"]:
             for b in entry.get("bullets", []):
                 all_text_parts.append(b)
-
-    # Education: preserved school must be present (always enforced)
-    preserved_school = resume_facts.get("preserved_school", "")
-    if preserved_school:
-        edu = str(data.get("education", ""))
-        if preserved_school.lower() not in edu.lower():
-            errors.append(f"Education '{preserved_school}' missing")
 
     # Bulk text checks
     all_text = " ".join(all_text_parts).lower()
@@ -206,8 +184,10 @@ def validate_tailored_resume(text: str, profile: dict, original_text: str = "") 
     resume_facts = profile.get("resume_facts", {})
 
     # 1. Check required sections exist (flexible matching)
+    # NOTE: no SUMMARY entry here -- profile.json's absolute_rules explicitly forbid
+    # a summary/objective section, so requiring one would fail every valid resume.
     section_variants: dict[str, list[str]] = {
-        "TECHNICAL SKILLS": ["technical skills", "skills", "tech stack", "core skills", "technologies"],
+        "SKILLS": ["skills", "technical skills", "tech stack", "core skills", "technologies"],
         "EXPERIENCE": ["experience", "work experience", "professional experience"],
         "PROJECTS": ["projects", "personal projects", "key projects", "selected projects"],
         "EDUCATION": ["education", "academic background"],
@@ -244,9 +224,11 @@ def validate_tailored_resume(text: str, profile: dict, original_text: str = "") 
     if phone and phone not in text:
         warnings.append("Phone missing -- will be injected")
 
-    # 7. Scan TECHNICAL SKILLS section for fabricated tools
-    skills_start = text_lower.find("technical skills")
-    skills_end = text_lower.find("experience", skills_start) if skills_start != -1 else -1
+    # 7. Scan SKILLS section for fabricated tools
+    # Section order is Header -> Education -> Experience -> Skills -> Projects,
+    # so the skills block runs from "\nskills\n" to the next "projects" heading.
+    skills_start = text_lower.find("\nskills\n")
+    skills_end = text_lower.find("projects", skills_start) if skills_start != -1 else -1
     if skills_start != -1 and skills_end != -1:
         skills_block = text_lower[skills_start:skills_end]
         for fake in FABRICATION_WATCHLIST:

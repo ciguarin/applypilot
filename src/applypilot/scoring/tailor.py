@@ -15,6 +15,7 @@ import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 from applypilot.config import RESUME_PATH, TAILORED_DIR, load_profile
 from applypilot.database import get_connection, get_jobs_by_stage
@@ -32,86 +33,166 @@ log = logging.getLogger(__name__)
 MAX_ATTEMPTS = 5  # max cross-run retries before giving up
 
 
+# ── Role Type Detection ────────────────────────────────────────────────────
+
+def _detect_role_type(job: dict, profile: dict) -> str:
+    """Detect role type from job description keywords.
+
+    Returns one of the keys in tailoring_instructions.role_type_detection,
+    defaulting to 'full_stack_software' if no match.
+    """
+    ti = profile.get("tailoring_instructions", {})
+    detection = ti.get("role_type_detection", {})
+    desc = (job.get("full_description") or "") + " " + (job.get("title") or "")
+    desc_lower = desc.lower()
+
+    scores: dict[str, int] = {}
+    for role_type, keywords_str in detection.items():
+        keywords = [k.strip().lower() for k in keywords_str.split(",")]
+        score = sum(1 for kw in keywords if kw in desc_lower)
+        if score > 0:
+            scores[role_type] = score
+
+    if not scores:
+        return "full_stack_software"
+
+    best = max(scores, key=lambda k: (scores[k], -list(detection.keys()).index(k)))
+    return best
+
+
 # ── Prompt Builders (profile-driven) ──────────────────────────────────────
 
-def _build_tailor_prompt(profile: dict) -> str:
+def _build_tailor_prompt(profile: dict, job: Optional[dict] = None) -> str:
     """Build the resume tailoring system prompt from the user's profile.
 
-    All skills boundaries, preserved entities, and formatting rules are
-    derived from the profile -- nothing is hardcoded.
+    Detects role type from the job description, selects matching
+    skills_profile, bullet variants, project order, and project descriptions
+    from profile.json.  The LLM only generates the title, skills (3
+    categories verbatim), and project bullets; locked experience content
+    is injected by assemble_resume_text().
     """
-    boundary = profile.get("skills_boundary", {})
+    role_type = _detect_role_type(job, profile) if job else "full_stack_software"
     resume_facts = profile.get("resume_facts", {})
 
-    # Format skills boundary for the prompt
+    # ── Select profile entries for this role type ────────────────────────
+
+    skills_profiles = resume_facts.get("skills_profiles", {})
+    selected_skills = skills_profiles.get(role_type, skills_profiles.get("full_stack_software", {}))
+
+    locked = resume_facts.get("locked_content", {})
+    chick_bullets = locked.get("chick_fil_a_bullets", [])
+    mit_sql = locked.get("mitsubishi_sql_bullet", "")
+
+    b1_variants = resume_facts.get("mitsubishi_bullet_1_variants", {})
+    mit_b1 = b1_variants.get(role_type, b1_variants.get("full_stack_software", ""))
+
+    b3_variants = resume_facts.get("mitsubishi_bullet_3_variants", {})
+    if role_type in ("devops_backend", "full_stack_software"):
+        mit_b3 = b3_variants.get("technical", "")
+    else:
+        mit_b3 = b3_variants.get("stakeholder", b3_variants.get("stakeholder_with_documentation", ""))
+
+    project_order = resume_facts.get("project_order_by_role", {}).get(role_type, ["Glyco", "Production Homelab & Automation"])
+    proj_descs = resume_facts.get("project_descriptions", {})
+    glyco_desc_key = "expanded" if role_type in ("ai_ml", "data_analytics") else "concise"
+    glyco_desc = proj_descs.get("glyco", {}).get(glyco_desc_key, "")
+
+    homelab_profiles = proj_descs.get("homelab", {})
+    homelab_role_map = {
+        "data_analytics": "data_focused",
+        "infrastructure_architecture": "infra_focused",
+        "devops_backend": "devops_focused",
+        "business_analyst": "general",
+        "full_stack_software": "general",
+        "ai_ml": "general",
+    }
+    homelab_key = homelab_role_map.get(role_type, "general")
+    homelab_desc = homelab_profiles.get(homelab_key, homelab_profiles.get("general", ""))
+
+    proj_dates = resume_facts.get("project_dates", {})
+    glyco_date = proj_dates.get("Glyco", "Mar 2026")
+    homelab_date = proj_dates.get("Production Homelab & Automation", "Jan 2024 - Present")
+
+    # Build skills block (3 categories)
     skills_lines = []
-    for category, items in boundary.items():
-        if isinstance(items, list) and items:
-            label = category.replace("_", " ").title()
-            skills_lines.append(f"{label}: {', '.join(items)}")
-    skills_block = "\n".join(skills_lines)
+    for cat in ("languages_and_frameworks", "tools", "domain_knowledge"):
+        label = {
+            "languages_and_frameworks": "Languages & Frameworks",
+            "tools": "Tools",
+            "domain_knowledge": "Domain Knowledge",
+        }[cat]
+        val = selected_skills.get(cat, "")
+        skills_lines.append(f'"{label}": "{val}"')
+    skills_json_block = ",\n        ".join(skills_lines)
 
-    # Preserved entities
-    companies = resume_facts.get("preserved_companies", [])
-    projects = resume_facts.get("preserved_projects", [])
-    school = resume_facts.get("preserved_school", "")
-    real_metrics = resume_facts.get("real_metrics", [])
+    # Locked experience preview — tells LLM what the resume will contain
+    # so it can tailor project bullets coherently
+    chick_header = "Chick-Fil-A STC | Toronto, ON | Front of House Team Member | Sep 2024 | Present"
+    mitsubishi_header = "Mitsubishi Motors | Toronto, ON | Data Analyst Intern | May 2024 | Aug 2024"
+    mit_bullets_preview = f"- {mit_b1}\n- {mit_sql}\n- {mit_b3}"
 
-    companies_str = ", ".join(companies) if companies else "N/A"
-    projects_str = ", ".join(projects) if projects else "N/A"
-    metrics_str = ", ".join(real_metrics) if real_metrics else "N/A"
+    # Project order by name
+    proj_order_str = " → ".join(project_order)
 
-    # Include ALL banned words from the validator so the LLM knows exactly
-    # what will be rejected — the validator checks for these automatically.
+    company = job.get("site", "") if job else ""
+    location = job.get("location", "N/A") if job else ""
+
     banned_str = ", ".join(BANNED_WORDS)
 
-    education = profile.get("experience", {})
-    education_level = education.get("education_level", "")
+    return f"""You are a senior technical recruiter tailoring a resume for a specific role.
 
-    return f"""You are a senior technical recruiter rewriting a resume to get this person an interview.
+## TARGET ROLE
+Company: {company}
+Location: {location}
+Title: {job.get("title", "") if job else ""}
 
-Take the base resume and job description. Return a tailored resume as a JSON object.
+## RESUME STRUCTURE (fixed — do not change section order)
+The final resume will be assembled in this order:
+1. HEADER — single line (name | email | phone | location | GitHub)
+2. EDUCATION — York University, GPA 3.7
+3. EXPERIENCE — Chick-Fil-A STC + Mitsubishi Motors (locked content, shown below)
+4. SKILLS — 3 categories (you must provide these verbatim)
+5. PROJECTS — 2 projects in this order: {proj_order_str}
 
-## RECRUITER SCAN (6 seconds):
-1. Title -- matches what they're hiring?
-2. First 3 bullets of most recent role -- verbs and outcomes match?
-3. Skills -- must-haves visible immediately?
+## EXPERIENCE SECTIONS (for context only — these are CODE-INJECTED, you do NOT generate them)
+The resume will contain these experience entries. You do NOT need to output them — they
+are automatically inserted. They are shown here so your project choices are coherent:
 
-## SKILLS BOUNDARY (real skills only):
-{skills_block}
+--- Chick-Fil-A STC ---
+{chr(10).join(f"  {b}" for b in chick_bullets)}
 
-You MAY add 2-3 closely related tools (Kubernetes if Docker, Terraform if AWS, Redis if PostgreSQL). No unrelated languages/frameworks.
+--- Mitsubishi Motors ---
+{mit_bullets_preview}
 
-## TAILORING RULES:
+## SKILLS — output these verbatim in the "skills" field:
+{{
+        {skills_json_block}
+}}
 
-TITLE: Match the target role. Keep seniority (Senior/Lead/Staff). Drop company suffixes and team names.
+## PROJECT 1: {project_order[0]} — Glyco
+Date: {glyco_date}
+Description to use: {glyco_desc}
+Write 2-3 bullets emphasizing the aspects most relevant to this role.
 
-SKILLS: Reorder each category so the job's must-haves appear first.
+## PROJECT 2: {project_order[1]} — Production Homelab & Automation
+Date: {homelab_date}
+Description to use: {homelab_desc}
+Write 2-3 bullets emphasizing the aspects most relevant to this role.
 
-Reframe EVERY bullet for this role. Same real work, different angle. Every bullet must be reworded. Never copy verbatim.
+## HARD RULES
+- NO summary or objective section
+- NO fabricating metrics — only use the resume's real numbers
+- NO banned words: {banned_str}
+- DO NOT modify skills — output them exactly as given
+- DO NOT output experience sections — they are code-injected
+- DO NOT include education in the JSON — it is code-injected
+- Title should match the target role title closely (e.g. "Software Engineer Intern")
+- Write short, direct bullets. Strong verb + what you built + impact.
+- Every bullet must be reworded for THIS role — different angle from base resume.
+- Max 4 bullets per project section.
 
-PROJECTS: Reorder by relevance. Drop irrelevant projects entirely.
-
-BULLETS: Strong verb + what you built + quantified impact. Vary verbs (Built, Designed, Implemented, Reduced, Automated, Deployed, Operated, Optimized). Most relevant first. Max 4 per section.
-
-## VOICE:
-- Write like a real engineer. Short, direct.
-- GOOD: "Automated financial reporting with Python + API integrations, cut processing time from 10 hours to 2"
-- BAD: "Leveraged cutting-edge AI technologies to drive transformative operational efficiencies"
-- BANNED WORDS (using ANY of these = validation failure — do not use them even once):
-  {banned_str}
-- No em dashes. Use commas, periods, or hyphens.
-
-## HARD RULES:
-- Do NOT invent work, companies, degrees, or certifications
-- Do NOT change real numbers ({metrics_str})
-- Preserved companies: {companies_str} -- names stay as-is
-- Preserved school: {school}
-- Must fit 1 page.
-
-## OUTPUT: Return ONLY valid JSON. No markdown fences. No commentary. No "here is" preamble.
-
-{{"title":"Role Title","skills":{{"Languages":"...","Frameworks":"...","DevOps & Infra":"...","Databases":"...","Tools":"..."}},"experience":[{{"header":"Title at Company","subtitle":"Tech | Dates","bullets":["bullet 1","bullet 2","bullet 3","bullet 4"]}}],"projects":[{{"header":"Project Name - Description","subtitle":"Tech | Dates","bullets":["bullet 1","bullet 2"]}}],"education":"{school} | {education_level}"}}"""
+## OUTPUT — return ONLY this JSON, no markdown fences, no commentary:
+{{"title":"Role Title","skills":{{"Languages & Frameworks":"...","Tools":"...","Domain Knowledge":"..."}},"projects":[{{"name":"Glyco","bullets":["bullet 1","bullet 2","bullet 3"]}},{{"name":"Production Homelab & Automation","bullets":["bullet 1","bullet 2"]}}]}}"""
 
 
 def _build_judge_prompt(profile: dict) -> str:
@@ -217,74 +298,105 @@ def extract_json(raw: str) -> dict:
 
 # ── Resume Assembly (profile-driven header) ──────────────────────────────
 
-def assemble_resume_text(data: dict, profile: dict) -> str:
-    """Convert JSON resume data to formatted plain text.
+def assemble_resume_text(data: dict, profile: dict, job: Optional[dict] = None) -> str:
+    """Assemble full resume text from LLM JSON + profile data.
 
-    Header (name, location, contact) is ALWAYS code-injected from the profile,
-    never LLM-generated. All text fields are sanitized.
+    Section order: Header → Education → Experience → Skills → Projects.
+    Locked experience content is injected from profile.json, not from the LLM.
 
     Args:
-        data: Parsed JSON resume from the LLM.
+        data: Parsed JSON resume from the LLM (title, skills, projects).
         profile: User profile dict from load_profile().
+        job: Job dict, used to detect role type for bullet/skills variant selection.
 
     Returns:
         Formatted resume text.
     """
     personal = profile.get("personal", {})
+    resume_facts = profile.get("resume_facts", {})
     lines: list[str] = []
 
-    # Header -- always code-injected from profile
-    lines.append(personal.get("full_name", ""))
-    lines.append(sanitize_text(data.get("title", "Software Engineer")))
+    # ── Detect role type for variant selection ───────────────────────────
+    if job:
+        role_type = _detect_role_type(job, profile)
+    else:
+        role_type = _detect_role_type({"full_description": "", "title": data.get("title", "")}, profile)
 
-    # Location from search config or profile -- leave blank if not available
-    # The location line is optional; the original used a hardcoded city.
-    # We omit it here; the LLM prompt can include it if the user sets it.
+    locked = resume_facts.get("locked_content", {})
+    chick_bullets = locked.get("chick_fil_a_bullets", [])
+    mit_sql = locked.get("mitsubishi_sql_bullet", "")
+    b1_variants = resume_facts.get("mitsubishi_bullet_1_variants", {})
+    mit_b1 = b1_variants.get(role_type, b1_variants.get("full_stack_software", ""))
+    b3_variants = resume_facts.get("mitsubishi_bullet_3_variants", {})
+    if role_type in ("devops_backend", "full_stack_software"):
+        mit_b3 = b3_variants.get("technical", "")
+    else:
+        mit_b3 = b3_variants.get("stakeholder", b3_variants.get("stakeholder_with_documentation", ""))
+    proj_dates = resume_facts.get("project_dates", {})
+    glyco_date = proj_dates.get("Glyco", "Mar 2026")
+    homelab_date = proj_dates.get("Production Homelab & Automation", "Jan 2024 - Present")
+    gpa = resume_facts.get("gpa", "3.7")
+    degree = resume_facts.get("degree", "BA Honours Computer Science")
+    minor_text = resume_facts.get("minor", "")
+    school = resume_facts.get("preserved_school", "York University | Lassonde School of Engineering")
 
-    # Contact line
-    contact_parts: list[str] = []
-    if personal.get("email"):
-        contact_parts.append(personal["email"])
-    if personal.get("phone"):
-        contact_parts.append(personal["phone"])
-    if personal.get("github_url"):
-        contact_parts.append(personal["github_url"])
-    if personal.get("linkedin_url"):
-        contact_parts.append(personal["linkedin_url"])
-    if contact_parts:
-        lines.append(" | ".join(contact_parts))
+    # ── 1. Header (single line) ─────────────────────────────────────────
+    name = personal.get("full_name", "Your Name")
+    email = personal.get("email", "your.email@example.com")
+    phone = personal.get("phone", "0000000000")
+    city = personal.get("city", "Toronto")
+    province = personal.get("province_state", "ON")
+    github = personal.get("github_url", "https://github.com/ciguarin").replace("https://", "")
+    lines.append(f"{name}   {email} | {phone} | {city}, {province} | {github}")
     lines.append("")
 
-    # Technical Skills
-    lines.append("TECHNICAL SKILLS")
-    if isinstance(data["skills"], dict):
-        for cat, val in data["skills"].items():
-            lines.append(f"{cat}: {sanitize_text(str(val))}")
-    lines.append("")
-
-    # Experience
-    lines.append("EXPERIENCE")
-    for entry in data.get("experience", []):
-        lines.append(sanitize_text(entry.get("header", "")))
-        if entry.get("subtitle"):
-            lines.append(sanitize_text(entry["subtitle"]))
-        for b in entry.get("bullets", []):
-            lines.append(f"- {sanitize_text(b)}")
-        lines.append("")
-
-    # Projects
-    lines.append("PROJECTS")
-    for entry in data.get("projects", []):
-        lines.append(sanitize_text(entry.get("header", "")))
-        if entry.get("subtitle"):
-            lines.append(sanitize_text(entry["subtitle"]))
-        for b in entry.get("bullets", []):
-            lines.append(f"- {sanitize_text(b)}")
-        lines.append("")
-
-    # Education
+    # ── 2. Education ────────────────────────────────────────────────────
     lines.append("EDUCATION")
-    lines.append(sanitize_text(str(data.get("education", ""))))
+    minor_str = f" (Minor in {minor_text} Intended)" if minor_text else ""
+    lines.append(f"{school}   Toronto, ON")
+    lines.append(f"{degree}{minor_str}, GPA: {gpa}   Sep 2025 | Apr 2029")
+    lines.append("")
+
+    # ── 3. Experience ───────────────────────────────────────────────────
+    lines.append("EXPERIENCE")
+
+    # Chick-Fil-A
+    lines.append("Chick-Fil-A STC   Toronto, ON")
+    lines.append("Front of House Team Member   Sep 2024 | Present")
+    for b in chick_bullets:
+        lines.append(f"- {sanitize_text(b)}")
+    lines.append("")
+
+    # Mitsubishi Motors
+    lines.append("Mitsubishi Motors   Toronto, ON")
+    lines.append("Data Analyst Intern   May 2024 | Aug 2024")
+    lines.append(f"- {sanitize_text(mit_b1)}")
+    lines.append(f"- {sanitize_text(mit_sql)}")
+    lines.append(f"- {sanitize_text(mit_b3)}")
+    lines.append("")
+
+    # ── 4. Skills ───────────────────────────────────────────────────────
+    lines.append("SKILLS")
+    skills = data.get("skills", {})
+    if isinstance(skills, dict):
+        for cat in ("Languages & Frameworks", "Tools", "Domain Knowledge"):
+            val = skills.get(cat, "")
+            if val:
+                lines.append(f"{cat}   {sanitize_text(str(val))}")
+    lines.append("")
+
+    # ── 5. Projects ─────────────────────────────────────────────────────
+    lines.append("PROJECTS")
+    projects = data.get("projects", [])
+    for proj in projects:
+        pname = proj.get("name", "")
+        date = glyco_date if "glyco" in pname.lower() else homelab_date if "homelab" in pname.lower() else ""
+        lines.append(sanitize_text(pname))
+        if date:
+            lines.append(date)
+        for b in proj.get("bullets", []):
+            lines.append(f"- {sanitize_text(b)}")
+        lines.append("")
 
     return "\n".join(lines)
 
@@ -375,7 +487,7 @@ def tailor_resume(
     avoid_notes: list[str] = []
     tailored = ""
     client = get_client()
-    tailor_prompt_base = _build_tailor_prompt(profile)
+    tailor_prompt_base = _build_tailor_prompt(profile, job)
 
     for attempt in range(max_retries + 1):
         report["attempts"] = attempt + 1
@@ -401,8 +513,6 @@ def tailor_resume(
             avoid_notes.append("Output was not valid JSON. Return ONLY a JSON object, nothing else.")
             continue
 
-        report["resume_json"] = data
-
         # Layer 1: Validate JSON fields
         validation = validate_json_fields(data, profile, mode=validation_mode)
         report["validator"] = validation
@@ -413,12 +523,12 @@ def tailor_resume(
             if attempt < max_retries:
                 continue
             # Last attempt — assemble whatever we got
-            tailored = assemble_resume_text(data, profile)
+            tailored = assemble_resume_text(data, profile, job)
             report["status"] = "failed_validation"
             return tailored, report
 
         # Assemble text (header injected by code, em dashes auto-fixed)
-        tailored = assemble_resume_text(data, profile)
+        tailored = assemble_resume_text(data, profile, job)
 
         # Layer 2: LLM judge (catches subtle fabrication) — skipped in lenient mode
         if validation_mode == "lenient":
@@ -510,24 +620,14 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
             report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
             # Generate PDF for approved resumes (best-effort)
-            # Try resumake API first (LaTeX template); fall back to built-in HTML renderer.
+            # "approved_with_judge_warning" is also a success — resume was generated.
             pdf_path = None
             if report["status"] in ("approved", "approved_with_judge_warning"):
-                resume_json = report.get("resume_json")
-                if resume_json:
-                    try:
-                        from applypilot.scoring.pdf import convert_resume_json_to_pdf
-                        pdf_out = txt_path.with_suffix(".pdf")
-                        convert_resume_json_to_pdf(resume_json, profile, pdf_out)
-                        pdf_path = str(pdf_out)
-                    except Exception:
-                        log.debug("resumake PDF failed, falling back to HTML renderer", exc_info=True)
-                if not pdf_path:
-                    try:
-                        from applypilot.scoring.pdf import convert_to_pdf
-                        pdf_path = str(convert_to_pdf(txt_path))
-                    except Exception:
-                        log.debug("PDF generation failed for %s", txt_path, exc_info=True)
+                try:
+                    from applypilot.scoring.pdf import convert_to_pdf
+                    pdf_path = str(convert_to_pdf(txt_path))
+                except Exception:
+                    log.debug("PDF generation failed for %s", txt_path, exc_info=True)
 
             result = {
                 "url": job["url"],

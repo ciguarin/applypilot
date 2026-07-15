@@ -19,6 +19,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urljoin
 
 from rich.console import Console
 from rich.live import Live
@@ -99,6 +100,22 @@ def _make_mcp_config(cdp_port: int) -> dict:
     return mcp
 
 
+def resolve_apply_url(job: dict) -> str:
+    """Resolve the job's application URL against its base URL.
+
+    application_url from discovery is often a relative path or bare
+    fragment (e.g. "/company/id/application" or "#job-form") -- not a
+    navigable URL on its own.
+    """
+    app_url = job.get("application_url")
+    base_url = job["url"]
+    if not app_url:
+        return base_url
+    if app_url.startswith("http://") or app_url.startswith("https://"):
+        return app_url
+    return urljoin(base_url, app_url)
+
+
 # ---------------------------------------------------------------------------
 # Database operations
 # ---------------------------------------------------------------------------
@@ -127,7 +144,7 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
                 FROM jobs
                 WHERE (url = ? OR application_url = ? OR application_url LIKE ? OR url LIKE ?)
                   AND tailored_resume_path IS NOT NULL
-                  AND apply_status != 'in_progress'
+                  AND (apply_status IS NULL OR apply_status != 'in_progress')
                 LIMIT 1
             """, (target_url, target_url, like, like)).fetchone()
         else:
@@ -163,7 +180,7 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
 
         # Skip manual ATS sites (unsolvable CAPTCHAs)
         from applypilot.config import is_manual_ats
-        apply_url = row["application_url"] or row["url"]
+        apply_url = resolve_apply_url(dict(row))
         if is_manual_ats(apply_url):
             conn.execute(
                 "UPDATE jobs SET apply_status = 'manual', apply_error = 'manual ATS' WHERE url = ?",
@@ -377,7 +394,7 @@ def run_job(job: dict, port: int, worker_id: int = 0,
     log_header = (
         f"\n{'=' * 60}\n"
         f"[{ts_header}] {job['title']} @ {job.get('site', '')}\n"
-        f"URL: {job.get('application_url') or job['url']}\n"
+        f"URL: {resolve_apply_url(job)}\n"
         f"Score: {job.get('fit_score', 'N/A')}/10\n"
         f"{'=' * 60}\n"
     )

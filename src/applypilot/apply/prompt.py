@@ -5,10 +5,27 @@ import os
 import shutil
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urljoin
 
 from applypilot import config
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_apply_url(job: dict) -> str:
+    """Resolve the job's application URL against its base URL.
+
+    application_url from discovery is often a relative path or bare
+    fragment (e.g. "/company/id/application" or "#job-form") -- not a
+    navigable URL on its own.
+    """
+    app_url = job.get("application_url")
+    base_url = job["url"]
+    if not app_url:
+        return base_url
+    if app_url.startswith("http://") or app_url.startswith("https://"):
+        return app_url
+    return urljoin(base_url, app_url)
 
 
 def _build_profile_summary(profile: dict) -> str:
@@ -400,7 +417,7 @@ def build_prompt(job: dict, tailored_resume: str,
 Use these directly. NEVER call ToolSearch. NEVER call email:list_accounts — it is not needed and wastes a turn.
 
 == JOB ==
-URL: {job.get('application_url') or job['url']}
+URL: {_resolve_apply_url(job)}
 Title: {job['title']}
 Company: {job.get('site', 'Unknown')}
 Fit Score: {job.get('fit_score', 'N/A')}/10

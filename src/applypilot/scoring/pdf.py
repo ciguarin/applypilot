@@ -4,27 +4,34 @@ Parses the structured text resume format, renders via an HTML/CSS template,
 and exports to PDF using headless Chromium via Playwright.
 """
 
-import json
 import logging
-import urllib.error
-import urllib.request
+import re
 from pathlib import Path
 
 from applypilot.config import TAILORED_DIR
-
-RESUMAKE_API = "https://latexresu.me/api/generate/resume"
-RESUMAKE_TEMPLATE = 3
 
 log = logging.getLogger(__name__)
 
 
 # ── Resume Parser ────────────────────────────────────────────────────────
 
+def _is_section_header(stripped: str) -> bool:
+    """True if a line looks like an ALL-CAPS section header (EDUCATION, EXPERIENCE, etc.)."""
+    return bool(
+        stripped
+        and stripped == stripped.upper()
+        and not stripped.startswith("-")
+        and len(stripped) > 3
+        and not stripped.startswith("•")
+    )
+
+
 def parse_resume(text: str) -> dict:
     """Parse a structured text resume into sections.
 
-    Expects a format with header lines (name, title, location, contact)
-    followed by ALL-CAPS section headers (SUMMARY, TECHNICAL SKILLS, etc.).
+    Expects a single-line header (name, email, phone, location, GitHub)
+    followed by ALL-CAPS section headers (EDUCATION, EXPERIENCE, SKILLS, PROJECTS).
+    There is no standalone title or summary line in the current format.
 
     Args:
         text: Full resume text.
@@ -34,30 +41,30 @@ def parse_resume(text: str) -> dict:
     """
     lines = [line.rstrip() for line in text.strip().split("\n")]
 
-    # Header: first few lines before SUMMARY
+    # Header: lines before the first ALL-CAPS section header
     header_lines: list[str] = []
     body_start = 0
     for i, line in enumerate(lines):
-        if line.strip().upper() == "SUMMARY":
+        if _is_section_header(line.strip()):
             body_start = i
             break
         if line.strip():
             header_lines.append(line.strip())
 
-    name = header_lines[0] if len(header_lines) > 0 else ""
-    title = header_lines[1] if len(header_lines) > 1 else ""
-    # The header may have 3 or 4 lines depending on whether location is included
+    # Header is a single combined line: name + 3 spaces + email | phone | city, prov | github
+    name = ""
+    title = ""
     location = ""
     contact = ""
-    if len(header_lines) > 3:
-        location = header_lines[2]
-        contact = header_lines[3]
-    elif len(header_lines) > 2:
-        # Could be location or contact -- check for email/phone indicators
-        if "@" in header_lines[2] or "|" in header_lines[2]:
-            contact = header_lines[2]
+    if header_lines:
+        first = header_lines[0]
+        if "   " in first:
+            name, contact = first.split("   ", 1)
         else:
-            location = header_lines[2]
+            name = first
+        # Any additional header lines (shouldn't normally occur) become the title.
+        if len(header_lines) > 1:
+            title = header_lines[1]
 
     # Split body into sections by ALL-CAPS headers
     sections: dict[str, str] = {}
@@ -66,14 +73,7 @@ def parse_resume(text: str) -> dict:
 
     for line in lines[body_start:]:
         stripped = line.strip()
-        # Detect section headers (all caps, no leading dash/bullet, longer than 3 chars)
-        if (
-            stripped
-            and stripped == stripped.upper()
-            and not stripped.startswith("-")
-            and len(stripped) > 3
-            and not stripped.startswith("\u2022")
-        ):
+        if _is_section_header(stripped):
             if current_section:
                 sections[current_section] = "\n".join(current_lines).strip()
             current_section = stripped
@@ -97,7 +97,9 @@ def parse_skills(text: str) -> list[tuple[str, str]]:
     """Parse skills section into (category, value) pairs.
 
     Args:
-        text: The TECHNICAL SKILLS section text.
+        text: The SKILLS section text. Category and value are separated by
+            3+ spaces (assemble_resume_text's format), with a colon fallback
+            for any older-format text.
 
     Returns:
         List of (category_name, skills_string) tuples.
@@ -105,7 +107,12 @@ def parse_skills(text: str) -> list[tuple[str, str]]:
     skills: list[tuple[str, str]] = []
     for line in text.strip().split("\n"):
         line = line.strip()
-        if ":" in line:
+        if not line:
+            continue
+        m = re.match(r"^(.+?)\s{2,}(.+)$", line)
+        if m:
+            skills.append((m.group(1).strip(), m.group(2).strip()))
+        elif ":" in line:
             cat, val = line.split(":", 1)
             skills.append((cat.strip(), val.strip()))
     return skills
@@ -167,12 +174,12 @@ def build_html(resume: dict) -> str:
 
     # Skills
     skills_html = ""
-    if "TECHNICAL SKILLS" in sections:
-        skills = parse_skills(sections["TECHNICAL SKILLS"])
+    if "SKILLS" in sections:
+        skills = parse_skills(sections["SKILLS"])
         rows = ""
         for cat, val in skills:
             rows += f'<div class="skill-row"><span class="skill-cat">{cat}:</span> {val}</div>\n'
-        skills_html = f'<div class="section"><div class="section-title">Technical Skills</div>{rows}</div>'
+        skills_html = f'<div class="section"><div class="section-title">Skills</div>{rows}</div>'
 
     # Experience
     exp_html = ""
@@ -199,13 +206,8 @@ def build_html(resume: dict) -> str:
     # Education
     edu_html = ""
     if "EDUCATION" in sections:
-        edu_text = sections["EDUCATION"].strip()
+        edu_text = sections["EDUCATION"].strip().replace("\n", "<br>")
         edu_html = f'<div class="section"><div class="section-title">Education</div><div class="edu">{edu_text}</div></div>'
-
-    # Summary
-    summary_html = ""
-    if "SUMMARY" in sections:
-        summary_html = f'<div class="section"><div class="section-title">Summary</div><div class="summary">{sections["SUMMARY"].strip()}</div></div>'
 
     # Contact line parsing
     contact = resume["contact"]
@@ -214,6 +216,7 @@ def build_html(resume: dict) -> str:
 
     # Location line (may be empty)
     location_html = f'<div class="location">{resume["location"]}</div>' if resume["location"] else ""
+    title_html = f'<div class="title">{resume["title"]}</div>' if resume["title"] else ""
 
     return f"""<!DOCTYPE html>
 <html>
@@ -324,15 +327,14 @@ li {{
 <body>
 <div class="header">
     <div class="name">{resume['name']}</div>
-    <div class="title">{resume['title']}</div>
+    {title_html}
     {location_html}
     <div class="contact">{contact_html}</div>
 </div>
-{summary_html}
-{skills_html}
-{exp_html}
-{proj_html}
 {edu_html}
+{exp_html}
+{skills_html}
+{proj_html}
 </body>
 </html>"""
 
@@ -359,126 +361,6 @@ def render_pdf(html: str, output_path: str) -> None:
             print_background=True,
         )
         browser.close()
-
-
-# ── Resumake Integration ─────────────────────────────────────────────────
-
-def _parse_work_header(header: str) -> tuple[str, str]:
-    parts = header.rsplit(" at ", 1)
-    return (parts[0].strip(), parts[1].strip()) if len(parts) == 2 else (header.strip(), "")
-
-
-def _parse_subtitle_dates(subtitle: str) -> tuple[str, str, str]:
-    """Return (tech, start_date, end_date) from 'Tech | Start | End' or 'Tech | Start - End'."""
-    if " | " not in subtitle:
-        return subtitle.strip(), "", ""
-    tech, date_str = subtitle.split(" | ", 1)
-    date_str = date_str.strip()
-    if " | " in date_str:
-        parts = date_str.split(" | ", 1)
-    elif " - " in date_str:
-        parts = date_str.split(" - ", 1)
-    else:
-        parts = [date_str, ""]
-    return tech.strip(), parts[0].strip(), (parts[1].strip() if len(parts) > 1 else "")
-
-
-def _parse_project_header(header: str) -> tuple[str, str]:
-    parts = header.split(" - ", 1)
-    return (parts[0].strip(), parts[1].strip()) if len(parts) == 2 else (header.strip(), "")
-
-
-def map_to_resumake(data: dict, profile: dict, template: int = RESUMAKE_TEMPLATE) -> dict:
-    """Convert ApplyPilot LLM JSON output to the resumake API request schema."""
-    personal = profile.get("personal", {})
-    resume_facts = profile.get("resume_facts", {})
-
-    skills = []
-    if isinstance(data.get("skills"), dict):
-        for cat, val in data["skills"].items():
-            keywords = [k.strip() for k in str(val).split(",") if k.strip()]
-            skills.append({"name": cat, "keywords": keywords})
-
-    work = []
-    for entry in data.get("experience", []):
-        position, company = _parse_work_header(entry.get("header", ""))
-        tech, start, end = _parse_subtitle_dates(entry.get("subtitle", ""))
-        work.append({
-            "company": company,
-            "position": position,
-            "location": "",
-            "startDate": start,
-            "endDate": end or "Present",
-            "highlights": entry.get("bullets", []),
-        })
-
-    projects = []
-    for entry in data.get("projects", []):
-        name, description = _parse_project_header(entry.get("header", ""))
-        tech, start, end = _parse_subtitle_dates(entry.get("subtitle", ""))
-        keywords = [k.strip() for k in tech.split(",") if k.strip()] if tech else []
-        projects.append({
-            "name": name,
-            "description": description,
-            "keywords": keywords,
-            "highlights": entry.get("bullets", []),
-        })
-
-    education = [{
-        "institution": resume_facts.get("preserved_school", ""),
-        "area": resume_facts.get("degree", profile.get("experience", {}).get("education_level", "")),
-        "studyType": "",
-        "startDate": "",
-        "endDate": resume_facts.get("graduation_year", ""),
-        "gpa": resume_facts.get("gpa", ""),
-    }]
-
-    return {
-        "selectedTemplate": template,
-        "headings": {
-            "work": "Experience",
-            "education": "Education",
-            "skills": "Technical Skills",
-            "projects": "Projects",
-        },
-        "basics": {
-            "name": personal.get("full_name", ""),
-            "email": personal.get("email", ""),
-            "phone": personal.get("phone", ""),
-            "website": personal.get("github_url", ""),
-            "location": {"address": f"{personal.get('city', '')}, {personal.get('province_state', '')}"},
-        },
-        "work": work,
-        "skills": skills,
-        "projects": projects,
-        "education": education,
-        "awards": [],
-        "sections": ["templates", "profile", "work", "skills", "projects", "education"],
-    }
-
-
-def convert_resume_json_to_pdf(data: dict, profile: dict, output_path: Path) -> Path:
-    """POST ApplyPilot LLM JSON to the resumake API and write the returned PDF."""
-    payload = map_to_resumake(data, profile)
-    body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        RESUMAKE_API,
-        data=body,
-        headers={
-            "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 ApplyPilot/1.0",
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        content_type = resp.headers.get("Content-Type", "")
-        if "pdf" not in content_type:
-            raise RuntimeError(f"resumake returned {content_type}, expected PDF")
-        pdf_bytes = resp.read()
-    output_path = Path(output_path)
-    output_path.write_bytes(pdf_bytes)
-    log.info("PDF generated via resumake (template %d): %s", RESUMAKE_TEMPLATE, output_path)
-    return output_path
 
 
 # ── Public API ───────────────────────────────────────────────────────────
