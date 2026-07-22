@@ -80,42 +80,62 @@ Write-Host "OK Config templates ready"
 
 # ── 6. Daemon script ──────────────────────────────────────────────────────────
 # Write the daemon script (Windows PowerShell equivalent of apply_daemon.sh)
+$uvApplyPilotExe = Join-Path $uvToolDir "applypilot\Scripts\applypilot.exe"
+
+# Paths below are baked in as literals resolved right now (not `$env:USERPROFILE`
+# lookups) — Task Scheduler spawns this script in a fresh process tree that does
+# not reliably inherit the interactive user's environment, so any dynamic env-var
+# resolution here can silently produce a bad path with zero error output.
 @"
 `$ErrorActionPreference = 'SilentlyContinue'
-`$db = "`$env:USERPROFILE\.applypilot\applypilot.db"
-`$log = "`$env:USERPROFILE\.applypilot\logs\apply_daemon.log"
+`$db = "$APPLYPILOT_DIR\applypilot.db"
+`$log = "$APPLYPILOT_DIR\logs\apply_daemon.log"
 
-New-Item -ItemType Directory -Force -Path "`$env:USERPROFILE\.applypilot\logs" | Out-Null
+New-Item -ItemType Directory -Force -Path "$APPLYPILOT_DIR\logs" | Out-Null
 
-Add-Content `$log ""
-Add-Content `$log "======================================"
-Add-Content `$log "`$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') -- daemon run start"
-Add-Content `$log "======================================"
+# -Encoding utf8 pinned throughout: Windows PowerShell 5.1's `>>` and Add-Content
+# default to UTF-16, which garbles this log for anything reading it as UTF-8.
 
-& "$uvToolDir\applypilot\Scripts\python.exe" -c "
+Add-Content `$log "" -Encoding utf8
+Add-Content `$log "======================================" -Encoding utf8
+Add-Content `$log "`$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') -- daemon run start" -Encoding utf8
+Add-Content `$log "======================================" -Encoding utf8
+
+& "$uvPython" -c "
 import sqlite3
-conn = sqlite3.connect(r'`$db')
-reset = conn.execute(\"UPDATE jobs SET apply_status = NULL WHERE apply_status = 'in_progress'\").rowcount
-conn.commit()
-if reset: print(f'Reset {reset} stuck jobs')
-" >> `$log 2>&1
+conn = sqlite3.connect(r'`$db', timeout=10)
+try:
+    reset = conn.execute(\"UPDATE jobs SET apply_status = NULL WHERE apply_status = 'in_progress'\").rowcount
+    conn.commit()
+    print(f'Reset check: {reset} stuck job(s) cleared')
+except Exception as e:
+    print(f'Reset FAILED: {type(e).__name__}: {e}')
+" 2>&1 | Out-File -FilePath `$log -Append -Encoding utf8
 
-Add-Content `$log "`$(Get-Date -Format 'HH:mm:ss') -- running pipeline..."
-applypilot run >> `$log 2>&1
+Add-Content `$log "`$(Get-Date -Format 'HH:mm:ss') -- running pipeline..." -Encoding utf8
+& "$uvApplyPilotExe" run 2>&1 | Out-File -FilePath `$log -Append -Encoding utf8
 
-Add-Content `$log "`$(Get-Date -Format 'HH:mm:ss') -- running apply..."
-applypilot apply --limit 15 --workers 2 --model haiku --headless >> `$log 2>&1
+Add-Content `$log "`$(Get-Date -Format 'HH:mm:ss') -- running apply..." -Encoding utf8
+& "$uvApplyPilotExe" apply --limit 15 --workers 2 --model haiku --headless 2>&1 | Out-File -FilePath `$log -Append -Encoding utf8
 
-Add-Content `$log "`$(Get-Date -Format 'HH:mm:ss') -- done"
+Add-Content `$log "`$(Get-Date -Format 'HH:mm:ss') -- done" -Encoding utf8
 "@ | Set-Content "$APPLYPILOT_DIR\apply_daemon.ps1" -Encoding UTF8
 
 # ── 7. Task Scheduler ─────────────────────────────────────────────────────────
 $taskName = "ApplyPilot.Apply"
-$psExe = if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh.exe" } else { "powershell.exe" }
+# Windows PowerShell 5.1 (not pwsh 7), deliberately: pwsh.exe is known to hang
+# indefinitely with zero output when launched by Task Scheduler on some Windows 11
+# machines (it tries to route through the Windows Terminal host with no interactive
+# session available to host it). powershell.exe predates that integration and
+# doesn't hit it. This script has no PS7-only syntax, so 5.1 is a safe target.
+# -WindowStyle Hidden is also omitted — it's one of the reported triggers for the
+# same hang class.
+$psExe = (Get-Command powershell -ErrorAction SilentlyContinue).Source
+if (-not $psExe) { $psExe = "powershell.exe" }
 
 $action = New-ScheduledTaskAction `
     -Execute $psExe `
-    -Argument "-NonInteractive -WindowStyle Hidden -File `"$APPLYPILOT_DIR\apply_daemon.ps1`"" `
+    -Argument "-NonInteractive -File `"$APPLYPILOT_DIR\apply_daemon.ps1`"" `
     -WorkingDirectory $APPLYPILOT_DIR
 
 # Two daily triggers = every 12h; avoids RepetitionDuration XML bugs and elevation requirements
@@ -125,7 +145,8 @@ $trigger2 = New-ScheduledTaskTrigger -Daily -At "20:00"
 $settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit (New-TimeSpan -Hours 2) `
     -StartWhenAvailable `
-    -RunOnlyIfNetworkAvailable
+    -RunOnlyIfNetworkAvailable `
+    -WakeToRun
 
 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
 $taskResult = Register-ScheduledTask `

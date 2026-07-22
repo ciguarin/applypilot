@@ -66,21 +66,32 @@ def register_daemon(console) -> bool:
 
 def _register_daemon_windows(console, app_dir: Path) -> bool:
     import shutil
-    ps = "pwsh.exe" if shutil.which("pwsh") else "powershell.exe"
+    # Registering the task can use pwsh if available -- that's just a normal
+    # subprocess call, made right now, in a real interactive context.
+    ps = shutil.which("pwsh") or shutil.which("powershell") or "powershell.exe"
+    # But the task's own -Execute target must be Windows PowerShell 5.1, not pwsh:
+    # pwsh.exe is known to hang indefinitely with zero output when launched BY Task
+    # Scheduler on some Windows 11 machines (it tries to route through the Windows
+    # Terminal host with no interactive session available to host it). powershell.exe
+    # predates that integration and doesn't hit it -- apply_daemon.ps1 has no PS7-only
+    # syntax, so 5.1 is a safe target. -WindowStyle Hidden is also omitted below --
+    # it's one of the reported triggers for the same hang class.
+    task_ps = shutil.which("powershell") or "powershell.exe"
     d = str(app_dir).replace("'", "''")
     script = f"""
 $D = '{d}'
-$ps = '{ps}'
+$ps = '{task_ps}'
 $action = New-ScheduledTaskAction `
     -Execute $ps `
-    -Argument "-NonInteractive -WindowStyle Hidden -File `"$D\\apply_daemon.ps1`"" `
+    -Argument "-NonInteractive -File `"$D\\apply_daemon.ps1`"" `
     -WorkingDirectory $D
 $trigger1 = New-ScheduledTaskTrigger -Daily -At "08:00"
 $trigger2 = New-ScheduledTaskTrigger -Daily -At "20:00"
 $settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit (New-TimeSpan -Hours 2) `
     -StartWhenAvailable `
-    -RunOnlyIfNetworkAvailable
+    -RunOnlyIfNetworkAvailable `
+    -WakeToRun
 Unregister-ScheduledTask -TaskName "ApplyPilot.Apply" -Confirm:$false -ErrorAction SilentlyContinue
 $r = Register-ScheduledTask -TaskName "ApplyPilot.Apply" `
     -Action $action -Trigger @($trigger1, $trigger2) -Settings $settings `
