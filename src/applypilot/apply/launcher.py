@@ -17,7 +17,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urljoin
 
@@ -36,6 +36,7 @@ from applypilot.apply.dashboard import (
     init_worker, update_state, add_event, get_state,
     render_full, get_totals,
 )
+from applypilot.apply.platforms import workday as workday_mod
 
 logger = logging.getLogger(__name__)
 
@@ -80,16 +81,19 @@ def _make_mcp_config(cdp_port: int) -> dict:
             },
         }
     }
-    email_addr = os.environ.get("EMAIL_ADDRESS", "")
+    # IMAP login must be the Apple ID, not a custom-domain alias -- iCloud's
+    # IMAP server rejects the alias even though mail addressed to it lands
+    # in the same inbox (see apply/email_verify.py for the same fix).
+    email_login = os.environ.get("EMAIL_IMAP_USERNAME") or os.environ.get("EMAIL_ADDRESS", "")
     email_pass = os.environ.get("EMAIL_PASSWORD", "")
-    if email_addr and email_pass:
+    if email_login and email_pass:
         imap_host = os.environ.get("EMAIL_IMAP_HOST", "imap.mail.me.com")
         smtp_host = os.environ.get("EMAIL_SMTP_HOST", "smtp.mail.me.com")
         mcp["mcpServers"]["email"] = {
             "command": "npx",
             "args": ["-y", "@codefuturist/email-mcp"],
             "env": {
-                "MCP_EMAIL_ADDRESS":      email_addr,
+                "MCP_EMAIL_ADDRESS":      email_login,
                 "MCP_EMAIL_PASSWORD":     email_pass,
                 "MCP_EMAIL_IMAP_HOST":    imap_host,
                 "MCP_EMAIL_SMTP_HOST":    smtp_host,
@@ -150,7 +154,14 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
         else:
             blocked_sites, blocked_patterns = _load_blocked()
             # Build parameterized filters to avoid SQL injection
-            params: list = [min_score]
+            # Internship postings older than this are almost always closed by the
+            # time an agent gets to them (observed: 55% of apply attempts on
+            # untouched backlog were dead listings, avg. 16 days stale) -- matches
+            # the existing 14-day TTL convention used for unscored-job pruning.
+            stale_cutoff = (
+                datetime.now(timezone.utc) - timedelta(days=14)
+            ).isoformat()
+            params: list = [config.DEFAULTS["max_apply_attempts"], min_score, stale_cutoff]
             site_clause = ""
             if blocked_sites:
                 placeholders = ",".join("?" * len(blocked_sites))
@@ -158,7 +169,15 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
                 params.extend(blocked_sites)
             url_clauses = ""
             if blocked_patterns:
-                url_clauses = " ".join(f"AND url NOT LIKE ?" for _ in blocked_patterns)
+                # Check the real apply destination (application_url, falling
+                # back to url), not just the source/tracker link -- a job
+                # sourced from a non-blocked aggregator (e.g. a GitHub-listed
+                # internship) can still resolve to a blocked ATS like
+                # LinkedIn once enriched, and that must be caught too.
+                url_clauses = " ".join(
+                    "AND COALESCE(NULLIF(application_url, ''), url) NOT LIKE ?"
+                    for _ in blocked_patterns
+                )
                 params.extend(blocked_patterns)
             row = conn.execute(f"""
                 SELECT url, title, site, application_url, tailored_resume_path,
@@ -168,11 +187,12 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
                   AND (apply_status IS NULL OR apply_status = 'failed')
                   AND (apply_attempts IS NULL OR apply_attempts < ?)
                   AND fit_score >= ?
+                  AND discovered_at >= ?
                   {site_clause}
                   {url_clauses}
-                ORDER BY fit_score DESC, url
+                ORDER BY fit_score DESC, discovered_at DESC
                 LIMIT 1
-            """, [config.DEFAULTS["max_apply_attempts"]] + params).fetchone()
+            """, params).fetchone()
 
         if not row:
             conn.rollback()
@@ -327,9 +347,48 @@ def reset_failed() -> int:
 # Per-job execution
 # ---------------------------------------------------------------------------
 
+def _try_deterministic_fast_path(job: dict, port: int, resume_pdf: Path | None,
+                                  worker_id: int, dry_run: bool) -> tuple[str, int] | None:
+    """Attempt a no-LLM apply path for platforms we can drive deterministically.
+
+    Returns (status, duration_ms) on a definitive outcome (applied or a real
+    failure), or None to fall back to the full Claude Code agent for this job.
+    Connects to the same Chrome instance (via CDP) that chrome.py already
+    launched for this worker -- no separate browser, no extra process.
+    """
+    apply_url = resolve_apply_url(job)
+    if not workday_mod.is_workday(apply_url):
+        return None
+    if not resume_pdf or not resume_pdf.exists():
+        return None
+
+    from playwright.sync_api import sync_playwright
+
+    start = time.time()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.connect_over_cdp(f"http://localhost:{port}")
+            context = browser.contexts[0] if browser.contexts else browser.new_context()
+            page = context.pages[0] if context.pages else context.new_page()
+            profile = config.load_profile()
+            result = workday_mod.apply_via_workday(
+                page, job, profile, resume_pdf, dry_run=dry_run,
+            )
+        duration_ms = int((time.time() - start) * 1000)
+        add_event(f"[W{worker_id}] Workday fast-path: {result.status} ({result.reason or 'ok'})")
+        return result.status, duration_ms
+    except workday_mod.NeedsAgent as e:
+        logger.info("[workday] fast-path bailed, falling back to agent: %s", e.reason)
+        add_event(f"[W{worker_id}] Workday fast-path bailed: {e.reason[:50]}")
+        return None
+    except Exception:
+        logger.exception("[workday] fast-path crashed, falling back to agent")
+        return None
+
+
 def run_job(job: dict, port: int, worker_id: int = 0,
             model: str = "sonnet", dry_run: bool = False) -> tuple[str, int]:
-    """Spawn a Claude Code session for one job application.
+    """Apply to one job -- deterministic fast path first, Claude Code agent as fallback.
 
     Returns:
         Tuple of (status_string, duration_ms). Status is one of:
@@ -342,6 +401,11 @@ def run_job(job: dict, port: int, worker_id: int = 0,
     resume_text = ""
     if txt_path and txt_path.exists():
         resume_text = txt_path.read_text(encoding="utf-8")
+
+    resume_pdf_path = Path(resume_path).with_suffix(".pdf") if resume_path else None
+    fast_result = _try_deterministic_fast_path(job, port, resume_pdf_path, worker_id, dry_run)
+    if fast_result is not None:
+        return fast_result
 
     # Build the prompt (inject worker_id so prompt can use worker-local file paths)
     job["_worker_id"] = worker_id
@@ -505,21 +569,23 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         def _clean_reason(s: str) -> str:
             return re.sub(r'[*`"]+$', '', s).strip()
 
+        # Match RESULT:APPLIED and RESULT: APPLIED (with or without a space
+        # after the colon) -- model phrasing isn't perfectly deterministic,
+        # and a strict no-space match previously mislabeled a real,
+        # confirmed application submission as "no_result_line" because the
+        # model wrote "RESULT: APPLIED" once.
         for result_status in ["APPLIED", "EXPIRED", "CAPTCHA", "LOGIN_ISSUE"]:
-            if f"RESULT:{result_status}" in output:
+            if re.search(rf"RESULT:\s*{result_status}\b", output):
                 add_event(f"[W{worker_id}] {result_status} ({elapsed}s): {job['title'][:30]}")
                 update_state(worker_id, status=result_status.lower(),
                              last_action=f"{result_status} ({elapsed}s)")
                 return result_status.lower(), duration_ms
 
-        if "RESULT:FAILED" in output:
+        if re.search(r"RESULT:\s*FAILED", output):
             for out_line in output.split("\n"):
-                if "RESULT:FAILED" in out_line:
-                    reason = (
-                        out_line.split("RESULT:FAILED:")[-1].strip()
-                        if ":" in out_line[out_line.index("FAILED") + 6:]
-                        else "unknown"
-                    )
+                match = re.search(r"RESULT:\s*FAILED\s*:?\s*(.*)", out_line)
+                if match:
+                    reason = match.group(1).strip() or "unknown"
                     reason = _clean_reason(reason)
                     PROMOTE_TO_STATUS = {"captcha", "expired", "login_issue"}
                     if reason in PROMOTE_TO_STATUS:
