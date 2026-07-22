@@ -4,6 +4,20 @@ All notable changes to this project will be documented here.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [1.2.0] - 2026-07-22
+
+### Added
+- **`applypilot config blocked`** — add/remove blocked sites and URL patterns for the apply stage without hand-editing the package's bundled `config/sites.yaml` (which gets overwritten on every `applypilot update`). Additions are stored in `~/.applypilot/blocked_sites.yaml` and merged with the package defaults at load time.
+- **`applypilot apply --reset-stuck`** — clear jobs left `in_progress` by a crashed or killed run. Also now happens automatically at the start of every `applypilot apply` invocation.
+- **`applypilot status --by-platform`** — breaks the apply-ready queue down by ATS platform (Workday, Greenhouse, LinkedIn, iCIMS, etc.).
+- **`applypilot daemon status/enable/disable/run-now`** — direct control over the scheduled background daemon on both platforms, without raw `schtasks`/`launchctl` commands.
+
+### Fixed
+- **`doctor`'s daemon health check** only tested whether `schtasks /Query` succeeded, which it does whether the task is enabled or disabled — a disabled daemon was reported as "OK". Now parses the actual `Scheduled Task State`.
+- **MCP server versions are now pinned** (`@playwright/mcp`, `@codefuturist/email-mcp`) instead of always resolving to latest on every agent invocation — matters most for the third-party email package, which receives real IMAP/SMTP credentials.
+- **Per-worker MCP config files** (containing the IMAP/SMTP password in plaintext) are now deleted once the agent subprocess exits, instead of sitting in `~/.applypilot` indefinitely between runs.
+- **Stuck-job recovery** no longer depends on a raw `sqlite3` one-liner duplicated in both platforms' daemon scripts — moved into the package itself (`launcher.reset_stuck_jobs()`).
+
 ## [1.1.0] - 2026-07-22
 
 ### Added
