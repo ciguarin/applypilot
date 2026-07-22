@@ -79,11 +79,38 @@ def get_latest_uid() -> int:
         conn.logout()
 
 
+def _archive(conn: imaplib.IMAP4_SSL, msg_uid: bytes, destination: str) -> None:
+    """Move a message out of INBOX after it's been consumed.
+
+    Mirrors the agent's own convention (apply/prompt.py: move_email(...,
+    destinationMailbox='Archive')) after using an OTP/verification email --
+    without this, every account-creation/password-reset/OTP email this
+    module reads sits in INBOX forever, and a real personal inbox used for
+    dozens of ATS signups gets buried fast. Uses the IMAP MOVE extension
+    (RFC 6851), which iCloud supports; falls back to COPY+delete+expunge
+    for servers that don't.
+    """
+    try:
+        typ, _ = conn.uid("MOVE", msg_uid, destination)
+        if typ == "OK":
+            return
+    except imaplib.IMAP4.error:
+        pass
+    # Fallback: copy then mark the original deleted.
+    try:
+        conn.uid("COPY", msg_uid, destination)
+        conn.uid("STORE", msg_uid, "+FLAGS", "(\\Deleted)")
+        conn.expunge()
+    except imaplib.IMAP4.error:
+        logger.warning("[email_verify] could not archive message uid=%s to %s", msg_uid, destination)
+
+
 def find_verification_link(
     domain_hint: str,
     min_uid: int = 0,
     wait_seconds: int = 70,
     poll_interval: int = 15,
+    archive_to: str | None = "Verification",
 ) -> str:
     """Poll INBOX for a verification email matching domain_hint, return the link URL.
 
@@ -97,6 +124,11 @@ def find_verification_link(
     Mirrors the ~70s patience window already tuned for the agent's OTP flow
     (see apply/prompt.py) -- real verification emails routinely take longer
     than a few seconds to arrive.
+
+    Once matched, the message is moved out of INBOX to `archive_to` (default
+    "Verification", an existing mailbox on this account) so a real personal
+    inbox doesn't accumulate every account-verification/password-reset email
+    this module ever reads. Pass None to leave it in place.
 
     Raises VerificationNotFound if nothing matches within the window.
     """
@@ -123,6 +155,8 @@ def find_verification_link(
                 candidates = [u for u in urls if any(k in u.lower() for k in _LINK_KEYWORDS)]
                 if candidates:
                     logger.info("[email_verify] found verification link on attempt %d", attempt)
+                    if archive_to:
+                        _archive(conn, msg_uid, archive_to)
                     return candidates[0]
         finally:
             conn.logout()

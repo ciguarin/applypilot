@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [1.3.1] - 2026-07-22
+
+### Fixed
+- **`email_verify.py` now archives verification/reset emails after use**, moving them out of INBOX (default: the existing "Verification" mailbox) via IMAP MOVE. The agent path already did this for OTP emails (`move_email` in `apply/prompt.py`); the deterministic Workday fast path's own email polling never did, leaving every account-verification and password-reset email it ever read sitting in the real inbox indefinitely.
+
 ## [1.3.0] - 2026-07-22
 
 ### Added
