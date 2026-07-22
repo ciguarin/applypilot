@@ -474,9 +474,11 @@ Cover Letter PDF: {cl_upload_path or 'N/A'}
    6f. Run CAPTCHA DETECT on the returned page.
    6g. If Google SSO button not found on login page: fall back to email/password login with {personal['email']} / {personal.get('password', '')}.
    6h. Email verification/OTP required after login?
-       - Wait 8s, list_emails limit=10, find email from site's domain, get_email, extract code or link, use it.
+       - Wait 15s, list_emails limit=10, find email from site's domain, get_email, extract code or link, use it.
          Then: move_email(account='default', emailId=<id>, sourceMailbox='INBOX', destinationMailbox='Archive')
-       - Nothing after 10s wait + retry: RESULT:FAILED:login_issue
+       - Nothing yet: wait 25s more, list_emails again.
+       - Still nothing: wait 30s more, list_emails a third time.
+       - Still nothing after ~70s total: RESULT:FAILED:login_issue
    6i. All failed -> RESULT:FAILED:login_issue.""" if site_login_method == "google_sso" else f"""   == MICROSOFT SSO LOGIN (configured for this site) ==
    6b. Look for "Sign in with Microsoft" button and click it.
    6c. A popup or new tab will open. Call browser_tabs and switch to it.
@@ -498,15 +500,16 @@ Cover Letter PDF: {cl_upload_path or 'N/A'}
        - Sign up fails (email taken / already registered): go back to forgot password flow above.
    6f. Email verification/OTP required?
        Do NOT call list_accounts. Go directly:
-       - Wait 8s, then call list_emails with limit=10 to get the 10 most recent emails.
+       - Wait 15s, then call list_emails with limit=10 to get the 10 most recent emails.
        - Find the one from the site's domain (match sender domain, not exact address).
        - Call get_email on that message id to read the full body.
        - OTP/code field visible: extract the numeric code, type it. Then archive:
          move_email(account='default', emailId=<id>, sourceMailbox='INBOX', destinationMailbox='Archive')
        - Verification link (no code field): extract the URL, browser_navigate to it, continue.
          Then archive: move_email(account='default', emailId=<id>, sourceMailbox='INBOX', destinationMailbox='Archive')
-       - Nothing relevant in last 10 emails: wait 10s more, call list_emails again once.
-       - Still nothing: RESULT:FAILED:login_issue
+       - Nothing relevant in last 10 emails: wait 25s more, call list_emails again.
+       - Still nothing: wait 30s more, call list_emails a third time.
+       - Still nothing after ~70s total: RESULT:FAILED:login_issue
    6g. Switch back to application tab if needed.
    6h. All failed -> RESULT:FAILED:login_issue."""}
 7. Upload resume: delete existing first, browser_file_upload with PDF path. Always upload fresh.
