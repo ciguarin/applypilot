@@ -97,8 +97,9 @@ Scrapes ~48 Canadian corporate employers directly. Add `APPLYPILOT_WORKDAY=1` to
 | 3 | Claude Code + Node.js + browser | `apply` |
 
 ```bash
-applypilot doctor   # check which tier you're on and what's missing
-applypilot status   # pipeline state at a glance
+applypilot doctor              # check which tier you're on and what's missing
+applypilot status              # pipeline state at a glance
+applypilot status --by-platform  # apply-ready queue broken down by ATS (Workday, Greenhouse, LinkedIn, ...)
 ```
 
 ---
@@ -117,6 +118,7 @@ applypilot config model       # LLM model
 applypilot config score       # minimum fit score threshold (default: 7)
 applypilot config api         # API keys and LLM provider
 applypilot config resume      # open resume.txt in your editor
+applypilot config blocked     # add/remove sites or URL patterns the apply stage should skip
 ```
 
 | File | Purpose |
@@ -136,6 +138,17 @@ The installer sets up a background daemon that runs `applypilot run` followed by
 
 - **macOS** — LaunchAgent (`~/Library/LaunchAgents/com.applypilot.apply.plist`)
 - **Windows** — Task Scheduler (`ApplyPilot.Apply`)
+
+Control it directly without touching Task Scheduler or `launchctl`:
+
+```bash
+applypilot daemon status    # registered? enabled? when did it last/next run?
+applypilot daemon enable    # turn it back on (re-registers it if missing entirely)
+applypilot daemon disable   # pause it without unregistering
+applypilot daemon run-now   # trigger a run immediately, outside its schedule
+```
+
+If a run crashes or gets killed mid-job, `applypilot apply` clears any job left stuck `in_progress` automatically on its next run — no manual database surgery needed. To do it without launching a full run: `applypilot apply --reset-stuck`.
 
 ---
 

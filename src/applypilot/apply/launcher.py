@@ -65,6 +65,18 @@ if platform.system() != "Windows":
 # MCP config
 # ---------------------------------------------------------------------------
 
+# Pinned exact versions for both `npx -y`-fetched MCP servers -- unpinned
+# `npx -y @pkg/name` re-resolves to whatever is currently published on every
+# single agent invocation. For @playwright/mcp (Microsoft-maintained) that's
+# mostly a reproducibility concern; for @codefuturist/email-mcp (a small,
+# single-maintainer third-party package that receives real IMAP/SMTP
+# credentials via env vars) it's a real supply-chain exposure -- an update
+# could ship different code with no review before it's given the user's
+# email password. Bump deliberately, not implicitly.
+_PLAYWRIGHT_MCP_VERSION = "0.0.78"
+_EMAIL_MCP_VERSION = "0.2.3"
+
+
 def _make_mcp_config(cdp_port: int) -> dict:
     """Build MCP config dict for a specific CDP port."""
     config.load_env()
@@ -74,7 +86,7 @@ def _make_mcp_config(cdp_port: int) -> dict:
                 "command": "npx",
                 "args": [
                     "-y",
-                    "@playwright/mcp",
+                    f"@playwright/mcp@{_PLAYWRIGHT_MCP_VERSION}",
                     f"--cdp-endpoint=http://localhost:{cdp_port}",
                     f"--viewport-size={config.DEFAULTS['viewport']}",
                 ],
@@ -91,7 +103,7 @@ def _make_mcp_config(cdp_port: int) -> dict:
         smtp_host = os.environ.get("EMAIL_SMTP_HOST", "smtp.mail.me.com")
         mcp["mcpServers"]["email"] = {
             "command": "npx",
-            "args": ["-y", "@codefuturist/email-mcp"],
+            "args": ["-y", f"@codefuturist/email-mcp@{_EMAIL_MCP_VERSION}"],
             "env": {
                 "MCP_EMAIL_ADDRESS":      email_login,
                 "MCP_EMAIL_PASSWORD":     email_pass,
@@ -339,6 +351,26 @@ def reset_failed() -> int:
           OR (apply_status IS NOT NULL AND apply_status != 'applied'
               AND apply_status != 'in_progress')
     """)
+    conn.commit()
+    return cursor.rowcount
+
+
+def reset_stuck_jobs() -> int:
+    """Clear 'in_progress' jobs left behind by a crashed or killed run.
+
+    reset_failed() deliberately excludes 'in_progress' (a job actively being
+    worked on right now shouldn't be reset out from under a running worker),
+    but a job stuck in that state from a *previous* process that died
+    ungracefully needs the same recovery. Called automatically at the start
+    of main() so a crash never needs manual SQL to recover from -- this used
+    to be a raw sqlite3 one-liner duplicated in both platforms' daemon
+    scripts.
+
+    Returns:
+        Number of jobs reset.
+    """
+    conn = get_connection()
+    cursor = conn.execute("UPDATE jobs SET apply_status = NULL WHERE apply_status = 'in_progress'")
     conn.commit()
     return cursor.rowcount
 
@@ -619,6 +651,10 @@ def run_job(job: dict, port: int, worker_id: int = 0,
             _claude_procs.pop(worker_id, None)
         if proc is not None and proc.poll() is None:
             _kill_process_tree(proc.pid)
+        # The MCP config file holds the IMAP/SMTP password in plaintext --
+        # it's only needed for the subprocess's own lifetime, don't leave a
+        # real credential sitting on disk indefinitely once the job is done.
+        mcp_config_path.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -783,6 +819,10 @@ def main(limit: int = 1, target_url: str | None = None,
 
     config.ensure_dirs()
     console = config.make_console()
+
+    reset_count = reset_stuck_jobs()
+    if reset_count:
+        console.print(f"[dim]Reset {reset_count} stuck job(s) from a previous run.[/dim]")
 
     if continuous:
         effective_limit = 0

@@ -88,7 +88,6 @@ $uvApplyPilotExe = Join-Path $uvToolDir "applypilot\Scripts\applypilot.exe"
 # resolution here can silently produce a bad path with zero error output.
 @"
 `$ErrorActionPreference = 'SilentlyContinue'
-`$db = "$APPLYPILOT_DIR\applypilot.db"
 `$log = "$APPLYPILOT_DIR\logs\apply_daemon.log"
 
 New-Item -ItemType Directory -Force -Path "$APPLYPILOT_DIR\logs" | Out-Null
@@ -101,16 +100,9 @@ Add-Content `$log "======================================" -Encoding utf8
 Add-Content `$log "`$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') -- daemon run start" -Encoding utf8
 Add-Content `$log "======================================" -Encoding utf8
 
-& "$uvPython" -c "
-import sqlite3
-conn = sqlite3.connect(r'`$db', timeout=10)
-try:
-    reset = conn.execute(\"UPDATE jobs SET apply_status = NULL WHERE apply_status = 'in_progress'\").rowcount
-    conn.commit()
-    print(f'Reset check: {reset} stuck job(s) cleared')
-except Exception as e:
-    print(f'Reset FAILED: {type(e).__name__}: {e}')
-" 2>&1 | Out-File -FilePath `$log -Append -Encoding utf8
+# Note: stuck 'in_progress' jobs from a previous crashed run are reset
+# automatically by `applypilot apply` itself (launcher.main() calls
+# reset_stuck_jobs() on startup) -- no separate step needed here.
 
 Add-Content `$log "`$(Get-Date -Format 'HH:mm:ss') -- running pipeline..." -Encoding utf8
 & "$uvApplyPilotExe" run 2>&1 | Out-File -FilePath `$log -Append -Encoding utf8

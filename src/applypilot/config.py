@@ -144,8 +144,37 @@ def is_manual_ats(url: str | None) -> bool:
     return any(domain in url_lower for domain in domains)
 
 
+USER_BLOCKED_SITES_PATH = APP_DIR / "blocked_sites.yaml"
+
+
+def load_user_blocked_sites() -> dict:
+    """Load the user's own blocklist additions (~/.applypilot/blocked_sites.yaml).
+
+    Kept separate from the package's bundled config/sites.yaml -- that file
+    lives inside the installed package and gets overwritten by every
+    `applypilot update`. User-added blocks belong in APP_DIR like every
+    other piece of user data (profile.json, searches.yaml, .env) so they
+    survive reinstalls.
+    """
+    import yaml
+    if not USER_BLOCKED_SITES_PATH.exists():
+        return {"sites": [], "url_patterns": []}
+    data = yaml.safe_load(USER_BLOCKED_SITES_PATH.read_text(encoding="utf-8")) or {}
+    return {"sites": data.get("sites") or [], "url_patterns": data.get("url_patterns") or []}
+
+
+def save_user_blocked_sites(sites: list[str], url_patterns: list[str]) -> None:
+    """Write the user's blocklist additions to APP_DIR."""
+    import yaml
+    APP_DIR.mkdir(parents=True, exist_ok=True)
+    USER_BLOCKED_SITES_PATH.write_text(
+        yaml.safe_dump({"sites": sites, "url_patterns": url_patterns}, sort_keys=False),
+        encoding="utf-8",
+    )
+
+
 def load_blocked_sites() -> tuple[set[str], list[str]]:
-    """Load blocked sites and URL patterns from sites.yaml.
+    """Load blocked sites and URL patterns: package defaults + user additions.
 
     Returns:
         (blocked_site_names, blocked_url_patterns)
@@ -153,7 +182,14 @@ def load_blocked_sites() -> tuple[set[str], list[str]]:
     cfg = load_sites_config()
     blocked = cfg.get("blocked", {})
     sites = set(blocked.get("sites", []))
-    patterns = blocked.get("url_patterns", [])
+    patterns = list(blocked.get("url_patterns", []))
+
+    user_blocked = load_user_blocked_sites()
+    sites.update(user_blocked["sites"])
+    for p in user_blocked["url_patterns"]:
+        if p not in patterns:
+            patterns.append(p)
+
     return sites, patterns
 
 

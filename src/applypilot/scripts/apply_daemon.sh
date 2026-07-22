@@ -4,7 +4,6 @@
 
 set -euo pipefail
 
-DB="$HOME/.applypilot/applypilot.db"
 APPLYPILOT="$(which applypilot 2>/dev/null || echo "$HOME/.local/bin/applypilot")"
 LOG="$HOME/.applypilot/logs/apply_daemon.log"
 
@@ -19,15 +18,9 @@ echo "======================================" >> "$LOG"
 pkill -f "chrome-workers/worker-" 2>/dev/null || true
 sleep 1
 
-# Reset stuck in_progress apply jobs from a previous crashed run
-"$APPLYPILOT" --version >/dev/null 2>&1  # warm PATH
-python3 -c "
-import sqlite3
-conn = sqlite3.connect('$DB')
-reset = conn.execute(\"UPDATE jobs SET apply_status = NULL WHERE apply_status = 'in_progress'\").rowcount
-conn.commit()
-if reset: print(f'Reset {reset} stuck in_progress jobs')
-" >> "$LOG" 2>&1
+# Note: stuck 'in_progress' jobs from a previous crashed run are reset
+# automatically by `applypilot apply` itself (launcher.main() calls
+# reset_stuck_jobs() on startup) -- no separate step needed here.
 
 # Run full pipeline: discover → enrich → score → tailor → cover → pdf
 echo "$(date '+%H:%M:%S') — running pipeline..." >> "$LOG"

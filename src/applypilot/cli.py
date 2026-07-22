@@ -160,6 +160,7 @@ def apply(
     mark_failed: Optional[str] = typer.Option(None, "--mark-failed", help="Manually mark a job URL as failed (provide URL)."),
     fail_reason: Optional[str] = typer.Option(None, "--fail-reason", help="Reason for --mark-failed."),
     reset_failed: bool = typer.Option(False, "--reset-failed", help="Reset all failed jobs for retry."),
+    reset_stuck: bool = typer.Option(False, "--reset-stuck", help="Clear jobs stuck 'in_progress' from a crashed or killed run."),
 ) -> None:
     """Launch auto-apply to submit job applications."""
     _bootstrap()
@@ -185,6 +186,12 @@ def apply(
         from applypilot.apply.launcher import reset_failed as do_reset
         count = do_reset()
         console.print(f"[green]Reset {count} failed job(s) for retry.[/green]")
+        return
+
+    if reset_stuck:
+        from applypilot.apply.launcher import reset_stuck_jobs
+        count = reset_stuck_jobs()
+        console.print(f"[green]Reset {count} stuck job(s).[/green]")
         return
 
     # --- Full apply mode ---
@@ -260,7 +267,9 @@ def apply(
 
 
 @app.command()
-def status() -> None:
+def status(
+    by_platform: bool = typer.Option(False, "--by-platform", help="Break down the apply-ready queue by ATS platform (Workday, Greenhouse, LinkedIn, etc.)."),
+) -> None:
     """Show pipeline statistics from the database."""
     _bootstrap()
 
@@ -321,6 +330,31 @@ def status() -> None:
             site_table.add_row(site or "Unknown", str(count))
 
         console.print(site_table)
+
+    # ATS platform breakdown (opt-in -- classifying every row is only worth
+    # the query when someone's actually asking "what's actually applyable
+    # here", e.g. deciding whether the Workday fast path is worth building
+    # out further, or whether the queue is mostly a platform we can't drive
+    # deterministically yet)
+    if by_platform:
+        from collections import Counter
+        from applypilot.database import get_connection as _get_conn
+        from applypilot.apply.platforms import classify_platform
+
+        conn = _get_conn()
+        rows = conn.execute(
+            "SELECT application_url, url FROM jobs "
+            "WHERE tailored_resume_path IS NOT NULL "
+            "AND (apply_status IS NULL OR apply_status = 'failed')"
+        ).fetchall()
+        counts = Counter(classify_platform(row[0] or row[1]) for row in rows)
+
+        platform_table = Table(title="\nApply-Ready Queue by Platform", show_header=True, header_style="bold blue")
+        platform_table.add_column("Platform")
+        platform_table.add_column("Count", justify="right")
+        for platform, count in counts.most_common():
+            platform_table.add_row(platform, str(count))
+        console.print(platform_table)
 
     # Manual apply queue
     from applypilot.database import get_connection
@@ -462,39 +496,14 @@ def doctor() -> None:
                         "Set CAPSOLVER_API_KEY in .env for CAPTCHA solving"))
 
     # --- Daemon status ---
-    import platform, subprocess as _sp
-    if platform.system() == "Windows":
-        r = _sp.run(
-            ["schtasks", "/Query", "/TN", "ApplyPilot.Apply", "/FO", "LIST"],
-            capture_output=True, text=True,
-        )
-        if r.returncode == 0:
-            next_run = next(
-                (line.split(":", 1)[1].strip() for line in r.stdout.splitlines() if "Next Run Time" in line),
-                "scheduled",
-            )
-            last_run = next(
-                (line.split(":", 1)[1].strip() for line in r.stdout.splitlines() if "Last Run Time" in line),
-                "never",
-            )
-            results.append(("Daemon", ok_mark, f"Task Scheduler — next: {next_run} / last: {last_run}"))
-        else:
-            results.append(("Daemon", fail_mark,
-                            "Not in Task Scheduler — re-run the installer"))
-    elif platform.system() == "Darwin":
-        r = _sp.run(
-            ["launchctl", "list", "com.applypilot.apply"],
-            capture_output=True, text=True,
-        )
-        if r.returncode == 0:
-            results.append(("Daemon", ok_mark, "LaunchAgent loaded (runs at 08:00 and 20:00)"))
-        else:
-            plist = Path.home() / "Library/LaunchAgents/com.applypilot.apply.plist"
-            if plist.exists():
-                results.append(("Daemon", warn_mark,
-                                f"plist exists but not loaded — run: launchctl load {plist}"))
-            else:
-                results.append(("Daemon", fail_mark, "Not installed — re-run the installer"))
+    from applypilot.bootstrap import daemon_status
+    dstat = daemon_status()
+    if not dstat["registered"]:
+        results.append(("Daemon", fail_mark, dstat["detail"]))
+    elif not dstat["enabled"]:
+        results.append(("Daemon", warn_mark, f"{dstat['detail']} — run: applypilot daemon enable"))
+    else:
+        results.append(("Daemon", ok_mark, f"{dstat['detail']} — next: {dstat['next_run']} / last: {dstat['last_run']}"))
 
     # --- Render results ---
     console.print()
@@ -591,6 +600,65 @@ def update() -> None:
     install_playwright(console)
     register_daemon(console)
     console.print("[dim]Restart your terminal or run 'hash -r' to pick up any changes.[/dim]")
+
+
+daemon_app = typer.Typer(help="Control the scheduled background daemon (Task Scheduler / LaunchAgent).")
+app.add_typer(daemon_app, name="daemon")
+
+
+@daemon_app.command("status")
+def daemon_status_cmd() -> None:
+    """Show whether the daemon is registered, enabled, and when it last/next ran."""
+    from applypilot.bootstrap import daemon_status as _status
+
+    st = _status()
+    console.print("\n[bold]ApplyPilot Daemon[/bold]\n")
+    if not st["registered"]:
+        console.print(f"  [red]Not registered.[/red] {st['detail']}")
+    elif not st["enabled"]:
+        console.print(f"  [yellow]Registered but disabled.[/yellow] {st['detail']}")
+        console.print("  [dim]Run: applypilot daemon enable[/dim]")
+    else:
+        console.print(f"  [green]Enabled.[/green] {st['detail']}")
+        console.print(f"  Next run: {st['next_run']}")
+        console.print(f"  Last run: {st['last_run']}")
+    console.print()
+
+
+@daemon_app.command("enable")
+def daemon_enable_cmd() -> None:
+    """Enable the scheduled daemon (registers it fresh if it's missing entirely)."""
+    from applypilot.bootstrap import enable_daemon
+
+    if enable_daemon():
+        console.print("[green]Daemon enabled.[/green]")
+    else:
+        console.print("[red]Failed to enable daemon.[/red] Try: applypilot repair")
+        raise typer.Exit(1)
+
+
+@daemon_app.command("disable")
+def daemon_disable_cmd() -> None:
+    """Disable the scheduled daemon without removing its registration."""
+    from applypilot.bootstrap import disable_daemon
+
+    if disable_daemon():
+        console.print("[green]Daemon disabled.[/green] Run 'applypilot daemon enable' to resume.")
+    else:
+        console.print("[red]Failed to disable daemon.[/red] It may not be registered — check: applypilot daemon status")
+        raise typer.Exit(1)
+
+
+@daemon_app.command("run-now")
+def daemon_run_now_cmd() -> None:
+    """Trigger the scheduled daemon's run immediately, outside its normal schedule."""
+    from applypilot.bootstrap import run_daemon_now
+
+    if run_daemon_now():
+        console.print("[green]Daemon run triggered.[/green] Check ~/.applypilot/logs/apply_daemon.log for progress.")
+    else:
+        console.print("[red]Failed to trigger daemon run.[/red] Check: applypilot daemon status")
+        raise typer.Exit(1)
 
 
 config_app = typer.Typer(
@@ -945,6 +1013,81 @@ def config_api() -> None:
         console.print("\n[green]API keys updated.[/green]")
     else:
         console.print("\n[dim]No changes made.[/dim]")
+
+
+@config_app.command("blocked")
+def config_blocked(
+    add_site: Optional[str] = typer.Option(None, "--add-site", help="Block a site by its `site` column value (e.g. 'linkedin')."),
+    add_pattern: Optional[str] = typer.Option(None, "--add-pattern", help="Block URLs matching a SQL LIKE pattern (e.g. '%example.com%')."),
+    remove_site: Optional[str] = typer.Option(None, "--remove-site", help="Unblock a previously user-added site."),
+    remove_pattern: Optional[str] = typer.Option(None, "--remove-pattern", help="Unblock a previously user-added URL pattern."),
+) -> None:
+    """View or edit blocked sites/URL patterns for the apply stage.
+
+    Package-shipped defaults (glassdoor, LinkedIn, etc.) live in the
+    installed package and can't be edited here -- only removed sites/patterns
+    you've added yourself can be removed. Your additions are stored in
+    ~/.applypilot/blocked_sites.yaml, separate from the package config, so
+    they survive `applypilot update`.
+    """
+    from applypilot.config import load_sites_config, load_user_blocked_sites, save_user_blocked_sites
+
+    user_blocked = load_user_blocked_sites()
+    user_sites = list(user_blocked["sites"])
+    user_patterns = list(user_blocked["url_patterns"])
+    changed = False
+
+    if add_site:
+        if add_site not in user_sites:
+            user_sites.append(add_site)
+            changed = True
+            console.print(f"[green]Added site to blocklist: {add_site}[/green]")
+        else:
+            console.print(f"[dim]Already blocked: {add_site}[/dim]")
+
+    if add_pattern:
+        if add_pattern not in user_patterns:
+            user_patterns.append(add_pattern)
+            changed = True
+            console.print(f"[green]Added URL pattern to blocklist: {add_pattern}[/green]")
+        else:
+            console.print(f"[dim]Already blocked: {add_pattern}[/dim]")
+
+    if remove_site:
+        if remove_site in user_sites:
+            user_sites.remove(remove_site)
+            changed = True
+            console.print(f"[green]Removed site from blocklist: {remove_site}[/green]")
+        else:
+            console.print(f"[yellow]Not in your blocklist (may be a package default -- can't remove those): {remove_site}[/yellow]")
+
+    if remove_pattern:
+        if remove_pattern in user_patterns:
+            user_patterns.remove(remove_pattern)
+            changed = True
+            console.print(f"[green]Removed URL pattern from blocklist: {remove_pattern}[/green]")
+        else:
+            console.print(f"[yellow]Not in your blocklist (may be a package default -- can't remove those): {remove_pattern}[/yellow]")
+
+    if changed:
+        save_user_blocked_sites(user_sites, user_patterns)
+
+    # Always show the full effective list (package defaults + user additions)
+    pkg_blocked = load_sites_config().get("blocked", {})
+    console.print("\n[bold]Package defaults[/bold] [dim](edit via the repo, not here)[/dim]")
+    for s in pkg_blocked.get("sites", []):
+        console.print(f"  site     {s}")
+    for p in pkg_blocked.get("url_patterns", []):
+        console.print(f"  pattern  {p}")
+
+    console.print("\n[bold]Your additions[/bold] [dim](~/.applypilot/blocked_sites.yaml)[/dim]")
+    if not user_sites and not user_patterns:
+        console.print("  [dim]none[/dim]")
+    for s in user_sites:
+        console.print(f"  site     {s}")
+    for p in user_patterns:
+        console.print(f"  pattern  {p}")
+    console.print()
 
 
 if __name__ == "__main__":
