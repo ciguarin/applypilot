@@ -149,6 +149,7 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
         Job dict or None if the queue is empty.
     """
     conn = get_connection()
+    current_signature = capability_signature()
     try:
         conn.execute("BEGIN IMMEDIATE")
 
@@ -174,7 +175,6 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
             stale_cutoff = (
                 datetime.now(timezone.utc) - timedelta(days=14)
             ).isoformat()
-            current_signature = capability_signature()
             params: list = [
                 config.DEFAULTS["max_apply_attempts"], current_signature, min_score, stale_cutoff,
             ]
