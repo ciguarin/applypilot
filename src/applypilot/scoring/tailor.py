@@ -335,6 +335,11 @@ def assemble_resume_text(data: dict, profile: dict, job: Optional[dict] = None) 
     proj_dates = resume_facts.get("project_dates", {})
     glyco_date = proj_dates.get("Glyco", "Mar 2026")
     homelab_date = proj_dates.get("Production Homelab & Automation", "Jan 2024 - Present")
+    proj_descs = resume_facts.get("project_descriptions", {})
+    glyco_header_desc = proj_descs.get("glyco", {}).get("concise", "")
+    glyco_tech_stack = proj_descs.get("glyco", {}).get("tech_stack", "")
+    homelab_header_desc = proj_descs.get("homelab", {}).get("header", "")
+    homelab_tech_stack = proj_descs.get("homelab", {}).get("tech_stack", "")
     gpa = resume_facts.get("gpa", "3.7")
     degree = resume_facts.get("degree", "BA Honours Computer Science")
     minor_text = resume_facts.get("minor", "")
@@ -390,8 +395,19 @@ def assemble_resume_text(data: dict, profile: dict, job: Optional[dict] = None) 
     projects = data.get("projects", [])
     for proj in projects:
         pname = proj.get("name", "")
-        date = glyco_date if "glyco" in pname.lower() else homelab_date if "homelab" in pname.lower() else ""
-        lines.append(sanitize_text(pname))
+        is_glyco = "glyco" in pname.lower()
+        is_homelab = "homelab" in pname.lower()
+        date = glyco_date if is_glyco else homelab_date if is_homelab else ""
+        desc = glyco_header_desc if is_glyco else homelab_header_desc if is_homelab else ""
+        tech_stack = glyco_tech_stack if is_glyco else homelab_tech_stack if is_homelab else ""
+
+        header = sanitize_text(pname)
+        if desc:
+            header += f" — {sanitize_text(desc)}"
+        if tech_stack:
+            header += f"   {sanitize_text(tech_stack)}"
+        lines.append(header)
+
         if date:
             lines.append(date)
         for b in proj.get("bullets", []):
