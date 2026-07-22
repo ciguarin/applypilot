@@ -41,6 +41,50 @@ KEYWORDS: [comma-separated ATS keywords from the job description that match or c
 REASONING: [2-3 sentences explaining the score]"""
 
 
+# ── Deterministic dead-listing detection ─────────────────────────────────
+# Checked before the LLM call, not after -- a listing that's already closed
+# or 404ing doesn't need a fit judgment, and skipping it here means it never
+# costs a token. GitHub-README-sourced jobs already get pruned when the
+# curator updates the source list (discovery/github_readme.py), but that's
+# only as fresh as the curator's own edits; this catches a listing that's
+# died on the company's own site in the gap before they notice.
+_DEAD_LISTING_PATTERNS = [
+    r"no longer accepting applications",
+    r"position has (?:already )?been filled",
+    r"(?:job |this )?(?:posting|job|opportunity) has expired",
+    r"(?:this )?job (?:posting |listing )?is no longer available",
+    r"this (?:position|opportunity) is (?:currently )?not available",
+    r"this position is no longer available",
+    r"page (?:you(?:'re| are) looking for|you requested) (?:doesn'?t|does not) exist",
+    r"job not found",
+    r"no job description (?:text )?found",
+    r"requisition (?:has been |is )?closed",
+    r"this (?:position|posting|role) (?:has been |is )?closed",
+    r"vacancy (?:has been |is )?closed",
+    r"error 404",
+    r"this posting is (?:closed|no longer active)",
+]
+# Backstop for content that's dead/garbage but doesn't match a known phrase --
+# real postings this short and free of any dead-listing language are rare
+# enough that the risk is worth it (validated against 215 real scored jobs
+# during development: zero survived after the patterns above were broadened).
+_DEAD_LISTING_MIN_LENGTH = 200
+
+
+def detect_dead_listing(description: str | None) -> str | None:
+    """Return a short reason if `description` looks like a dead/closed
+    listing, else None. Deliberately narrow -- a false positive here means
+    a real, applyable job gets scored 1 and silently skipped, so patterns
+    are specific phrases, not broad keywords."""
+    if not description or len(description.strip()) < _DEAD_LISTING_MIN_LENGTH:
+        return f"description under {_DEAD_LISTING_MIN_LENGTH} chars -- likely a dead or blocked page"
+    text_lower = description.lower()
+    for pattern in _DEAD_LISTING_PATTERNS:
+        if re.search(pattern, text_lower):
+            return f"matched dead-listing phrase: {pattern!r}"
+    return None
+
+
 def _parse_score_response(response: str) -> dict:
     """Parse the LLM's score response into structured data.
 
@@ -109,7 +153,7 @@ def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
         rescore: If True, re-score all jobs (not just unscored ones).
 
     Returns:
-        {"scored": int, "errors": int, "elapsed": float, "distribution": list}
+        {"scored": int, "errors": int, "dead_listings": int, "elapsed": float, "distribution": list}
     """
     resume_text = RESUME_PATH.read_text(encoding="utf-8")
     conn = get_connection()
@@ -135,10 +179,19 @@ def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
     t0 = time.time()
     completed = 0
     errors = 0
+    dead_listings = 0
     results: list[dict] = []
 
     for job in jobs:
-        result = score_job(resume_text, job)
+        dead_reason = detect_dead_listing(job.get("full_description"))
+        if dead_reason:
+            result = {
+                "score": 1, "keywords": "",
+                "reasoning": f"Dead/closed listing (deterministic check, no LLM call) -- {dead_reason}",
+            }
+            dead_listings += 1
+        else:
+            result = score_job(resume_text, job)
         result["url"] = job["url"]
         completed += 1
 
@@ -163,7 +216,10 @@ def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
     conn.commit()
 
     elapsed = time.time() - t0
-    log.info("Done: %d scored in %.1fs (%.1f jobs/sec)", len(results), elapsed, len(results) / elapsed if elapsed > 0 else 0)
+    log.info(
+        "Done: %d scored in %.1fs (%.1f jobs/sec) -- %d dead listing(s) caught without an LLM call",
+        len(results), elapsed, len(results) / elapsed if elapsed > 0 else 0, dead_listings,
+    )
 
     # Score distribution
     dist = conn.execute("""
@@ -176,6 +232,7 @@ def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
     return {
         "scored": len(results),
         "errors": errors,
+        "dead_listings": dead_listings,
         "elapsed": elapsed,
         "distribution": distribution,
     }

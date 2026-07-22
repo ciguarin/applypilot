@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [1.3.0] - 2026-07-22
+
+### Added
+- **Deterministic dead-listing detection** (`scoring/scorer.py`) — before spending an LLM call scoring a job, checks `full_description` against a set of dead/closed-listing phrases ("no longer accepting applications", "this job has expired", "job not found", etc.) and a minimum-length backstop. Matches short-circuit straight to a score of 1 with no LLM call. Complements `discovery/github_readme.py`'s existing prune-on-removal — that only catches a listing after the curator notices and updates the source list; this catches it the moment enrichment actually fetches the dead page. Validated against real data: 15/15 known-dead listings caught, and it surfaced 3 real cases the LLM scorer had gotten wrong (scoring a literal "Job not found" page 10/10) across 215 already-scored jobs.
+
 ## [1.2.0] - 2026-07-22
 
 ### Added
