@@ -4,6 +4,24 @@ All notable changes to this project will be documented here.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [1.1.0] - 2026-07-22
+
+### Added
+- **Deterministic Workday apply fast path** (`apply/platforms/workday.py`) — completes the entire Workday application wizard (sign-in/account creation, email verification, password reset, resume upload, address/contact/EEO fields) via Playwright directly, no LLM agent involved. Falls back to the full Claude Code agent for anything genuinely tenant-specific: custom screening questions, CAPTCHAs, or an unrecognized page layout.
+- **`apply/email_verify.py`** — pure-IMAP polling for verification/reset links, shared by any platform filler that needs to clear an email gate without a full agent session. UID-baselined so a stale email from an earlier attempt can't be mistaken for a fresh one.
+- Tailored resume project bullets now include the description and tech stack line, not just name and date.
+
+### Fixed
+- **Windows Task Scheduler daemon hang** — `pwsh.exe` hangs indefinitely with zero output when Task Scheduler launches it non-interactively on some Windows 11 machines. Daemon registration now forces `powershell.exe` 5.1, drops `-WindowStyle Hidden`, and adds `-WakeToRun`.
+- **OTP/verification-email wait window** extended from ~18s to ~70s (three-stage backoff) across the agent's Google SSO, Microsoft SSO, and plain email/password login flows — real verification emails routinely take longer than the old window allowed.
+- **iCloud IMAP login** — custom-domain email aliases (`you@yourdomain.com`) can't authenticate directly against iCloud's IMAP server; the actual Apple ID is required as the login username even though mail to the alias lands in the same inbox. Fixed in both the email MCP config and `email_verify.py`.
+- **Stale job queue ordering** — `acquire_job()` now excludes postings older than 14 days and orders by freshness, matching the existing pruning convention. Untouched backlog was observed hitting 55% dead-listing failures from postings an average of 16 days stale.
+- **`RESULT:APPLIED`/`RESULT:FAILED` parsing** is now whitespace-tolerant — a strict no-space match previously mislabeled a real, confirmed application submission as a failure because the model wrote `RESULT: APPLIED` with a space.
+- **Blocked-site URL matching** now checks the resolved `application_url`, not just the raw source/tracker `url` — a job sourced from a non-blocked aggregator could still resolve to a blocked ATS (e.g. LinkedIn) once enriched, slipping past the blocklist entirely.
+
+### Changed
+- **JobSpy discovery (LinkedIn/Indeed/Glassdoor) is now opt-in**, not on by default — real usage showed ~0.4% conversion to the auto-apply threshold versus the GitHub README sources, and LinkedIn's login flow carries real account-lockout risk during the apply stage. Set `sites:` in `searches.yaml` to re-enable.
+
 ## [1.0.0] - 2026-06-23
 
 First release of the Canadian-focused fork. Based on [Pickle-Pixel/ApplyPilot](https://github.com/Pickle-Pixel/ApplyPilot) v0.3.0.
