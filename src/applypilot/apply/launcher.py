@@ -156,7 +156,8 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
             like = f"%{target_url.split('?')[0].rstrip('/')}%"
             row = conn.execute("""
                 SELECT url, title, site, application_url, tailored_resume_path,
-                       fit_score, location, full_description, cover_letter_path
+                       fit_score, location, full_description, cover_letter_path,
+                       apply_attempts
                 FROM jobs
                 WHERE (url = ? OR application_url = ? OR application_url LIKE ? OR url LIKE ?)
                   AND tailored_resume_path IS NOT NULL
@@ -173,7 +174,10 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
             stale_cutoff = (
                 datetime.now(timezone.utc) - timedelta(days=14)
             ).isoformat()
-            params: list = [config.DEFAULTS["max_apply_attempts"], min_score, stale_cutoff]
+            current_signature = capability_signature()
+            params: list = [
+                config.DEFAULTS["max_apply_attempts"], current_signature, min_score, stale_cutoff,
+            ]
             site_clause = ""
             if blocked_sites:
                 placeholders = ",".join("?" * len(blocked_sites))
@@ -193,11 +197,17 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
                 params.extend(blocked_patterns)
             row = conn.execute(f"""
                 SELECT url, title, site, application_url, tailored_resume_path,
-                       fit_score, location, full_description, cover_letter_path
+                       fit_score, location, full_description, cover_letter_path,
+                       apply_attempts
                 FROM jobs
                 WHERE tailored_resume_path IS NOT NULL
                   AND (apply_status IS NULL OR apply_status = 'failed')
-                  AND (apply_attempts IS NULL OR apply_attempts < ?)
+                  AND (
+                    apply_attempts IS NULL
+                    OR apply_attempts < ?
+                    OR apply_failed_signature IS NULL
+                    OR apply_failed_signature != ?
+                  )
                   AND fit_score >= ?
                   AND discovered_at >= ?
                   {site_clause}
@@ -223,10 +233,26 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
             return None
 
         now = datetime.now(timezone.utc).isoformat()
-        conn.execute("""
+        # A job only reaches here with attempts >= max via the signature-
+        # mismatch path (conditions changed since it was marked permanent)
+        # -- give it a full fresh retry budget rather than leaving it at 99,
+        # so normal retry-counting behaves sanely if it fails again for a
+        # genuinely different (non-permanent) reason next time.
+        was_permanently_stuck = (
+            row["apply_attempts"] is not None
+            and row["apply_attempts"] >= config.DEFAULTS["max_apply_attempts"]
+        )
+        reset_clause = ", apply_attempts = 0" if was_permanently_stuck else ""
+        if was_permanently_stuck:
+            logger.info(
+                "Re-attempting %s after a permanent failure -- capability signature changed (%s)",
+                row["url"][:80], current_signature,
+            )
+        conn.execute(f"""
             UPDATE jobs SET apply_status = 'in_progress',
                            agent_id = ?,
                            last_attempted_at = ?
+                           {reset_clause}
             WHERE url = ?
         """, (f"worker-{worker_id}", now, row["url"]))
         conn.commit()
@@ -247,7 +273,8 @@ def mark_result(url: str, status: str, error: str | None = None,
         conn.execute("""
             UPDATE jobs SET apply_status = 'applied', applied_at = ?,
                            apply_error = NULL, agent_id = NULL,
-                           apply_duration_ms = ?, apply_task_id = ?
+                           apply_duration_ms = ?, apply_task_id = ?,
+                           apply_failed_signature = NULL
             WHERE url = ?
         """, (now, duration_ms, task_id, url))
     else:
@@ -255,9 +282,10 @@ def mark_result(url: str, status: str, error: str | None = None,
         conn.execute(f"""
             UPDATE jobs SET apply_status = ?, apply_error = ?,
                            apply_attempts = {attempts}, agent_id = NULL,
-                           apply_duration_ms = ?, apply_task_id = ?
+                           apply_duration_ms = ?, apply_task_id = ?,
+                           apply_failed_signature = ?
             WHERE url = ?
-        """, (status, error or "unknown", duration_ms, task_id, url))
+        """, (status, error or "unknown", duration_ms, task_id, capability_signature(), url))
     conn.commit()
 
 
@@ -325,15 +353,17 @@ def mark_job(url: str, status: str, reason: str | None = None) -> None:
     if status == "applied":
         conn.execute("""
             UPDATE jobs SET apply_status = 'applied', applied_at = ?,
-                           apply_error = NULL, agent_id = NULL
+                           apply_error = NULL, agent_id = NULL,
+                           apply_failed_signature = NULL
             WHERE url = ?
         """, (now, url))
     else:
         conn.execute("""
             UPDATE jobs SET apply_status = 'failed', apply_error = ?,
-                           apply_attempts = 99, agent_id = NULL
+                           apply_attempts = 99, agent_id = NULL,
+                           apply_failed_signature = ?
             WHERE url = ?
-        """, (reason or "manual", url))
+        """, (reason or "manual", capability_signature(), url))
     conn.commit()
 
 
@@ -681,6 +711,34 @@ def _is_permanent_failure(result: str) -> bool:
         or reason in PERMANENT_FAILURES
         or any(reason.startswith(p) for p in PERMANENT_PREFIXES)
     )
+
+
+def capability_signature() -> str:
+    """A short string that changes whenever something relevant to a past
+    failure's *cause* might have changed -- the applypilot version, and
+    whether CapSolver is now configured.
+
+    "Permanent" failures (captcha, login_issue, expired, ...) get
+    apply_attempts=99 specifically so acquire_job() never retries them
+    blindly -- most of the time a login_issue really is a bad password and
+    retrying wastes an attempt. But "permanent" only ever meant "not worth
+    retrying under the same conditions." A captcha failure recorded before
+    CAPSOLVER_API_KEY was set, or a login_issue recorded on an older
+    version that had a real sign-in bug, deserves one fresh look once
+    conditions change -- without that, closing the gap that caused the
+    failure requires a human to remember which specific jobs it might have
+    affected and manually run --reset-failed. This signature is stored
+    alongside a failure (see mark_result/mark_job) and compared against the
+    current one in acquire_job() -- a mismatch means "worth one more try."
+
+    Deliberately narrow: only signals proven to matter are included. Adding
+    more here should be a considered decision, not a default -- an
+    over-broad signature (e.g. hashing the whole environment) would trigger
+    pointless retries on every unrelated change.
+    """
+    from applypilot import __version__
+    capsolver = "1" if os.environ.get("CAPSOLVER_API_KEY") else "0"
+    return f"v={__version__};capsolver={capsolver}"
 
 
 # ---------------------------------------------------------------------------

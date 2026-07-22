@@ -4,6 +4,14 @@ All notable changes to this project will be documented here.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [1.4.0] - 2026-07-22
+
+### Added
+- **Automatic retry for permanently-failed jobs when conditions change** (`apply/launcher.py: capability_signature()`). Vanilla upstream behavior sets `apply_attempts=99` for failures judged unrecoverable (`captcha`, `login_issue`, `expired`, etc. -- `PERMANENT_FAILURES`), which correctly avoids blindly re-trying a bad password forever, but also meant a real fix (a login-flow bug patch, or turning on `CAPSOLVER_API_KEY`) could never reach jobs that failed before the fix existed without a human manually running `--reset-failed` -- and there was no way to know *which* past failures a given fix actually applies to. Every failure is now tagged with a signature (currently: applypilot version + whether CapSolver is configured); `acquire_job()` gives a job one fresh attempt, with a full reset attempts budget, whenever the current signature differs from the one it failed under. Deliberately narrow -- only signals proven to matter are included, to avoid retrying on irrelevant changes.
+
+### Fixed
+- **`applypilot.__version__` was hardcoded to "1.0.0"** in `__init__.py`, completely disconnected from `pyproject.toml` -- `applypilot --version` had been silently wrong since the very first version bump after the v1 fork. Now resolved dynamically via `importlib.metadata`, the actual source of truth.
+
 ## [1.3.1] - 2026-07-22
 
 ### Fixed
