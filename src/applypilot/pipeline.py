@@ -82,18 +82,28 @@ def _run_discover(workers: int = 1) -> dict:
         stats["github_readme"] = f"error: {e}"
 
     # JobSpy — LinkedIn, Indeed, Glassdoor, ZipRecruiter
-    console.print("  [cyan]JobSpy (LinkedIn, Indeed, Glassdoor)...[/cyan]")
-    try:
-        from applypilot.discovery.jobspy import run_discovery as run_jobspy
-        run_jobspy()
-        stats["jobspy"] = "ok"
-    except ImportError as e:
-        console.print(f"  [yellow]JobSpy not available — skipping ({e})[/yellow]")
-        stats["jobspy"] = f"skipped: {e}"
-    except Exception as e:
-        log.error("JobSpy discovery failed: %s", e)
-        console.print(f"  [red]JobSpy error:[/red] {e}")
-        stats["jobspy"] = f"error: {e}"
+    # Disabled when searches.yaml `sites` is empty: low yield (~0.4% hit auto-apply
+    # threshold) relative to the GitHub README sources, and LinkedIn login carries
+    # real account-lockout risk during the `apply` stage. Set `sites:` in
+    # searches.yaml to re-enable.
+    from applypilot import config as _config
+    _jobspy_sites = (_config.load_search_config() or {}).get("sites")
+    if not _jobspy_sites:
+        console.print("  [dim]JobSpy skipped (no sites configured in searches.yaml)[/dim]")
+        stats["jobspy"] = "skipped: no sites configured"
+    else:
+        console.print("  [cyan]JobSpy (LinkedIn, Indeed, Glassdoor)...[/cyan]")
+        try:
+            from applypilot.discovery.jobspy import run_discovery as run_jobspy
+            run_jobspy()
+            stats["jobspy"] = "ok"
+        except ImportError as e:
+            console.print(f"  [yellow]JobSpy not available — skipping ({e})[/yellow]")
+            stats["jobspy"] = f"skipped: {e}"
+        except Exception as e:
+            log.error("JobSpy discovery failed: %s", e)
+            console.print(f"  [red]JobSpy error:[/red] {e}")
+            stats["jobspy"] = f"error: {e}"
 
     # Workday — disabled by default (20 min runtime, 0 unique high-fit jobs vs LinkedIn)
     # Enable via APPLYPILOT_WORKDAY=1 in .env
