@@ -4,6 +4,15 @@ All notable changes to this project will be documented here.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [1.5.0] - 2026-07-23
+
+### Fixed
+- **Apply-worker email tool name mismatch** (`apply/prompt.py`). The prompt told the agent to call email tools as `email:list_emails` etc., which isn't a real MCP tool name (the actual name is `mcp__email__list_emails`) -- every call failed, and the agent fell back to `ToolSearch`, which surfaced an unrelated connected Gmail account instead of the configured IMAP inbox, so OTP/verification codes were never found. Confirmed live: fixing this unstuck a job that had been permanently failing on `email_verification_blocked`.
+- **CAPTCHA prompt regression** (`apply/prompt.py`). Our fork's CAPTCHA section was a compressed rewrite of upstream's that dropped the enforcement language telling the agent to always call CapSolver's API before doing anything else, and to go back and try the API if it hadn't yet. Without it, the agent would see a rendered hCaptcha image-challenge and just start clicking on images itself instead of calling `createTask`. Replaced with upstream's verbatim text (checked Pickle-Pixel/ApplyPilot's issue tracker first -- not a known upstream bug, a regression from our own earlier rewrite).
+- **Apply-worker shell access not actually blocked on Windows** (`apply/launcher.py`). `--disallowedTools` named `Bash`, but this OS's actual shell tool is `PowerShell`, which was never blocked. Confirmed live: 53 real PowerShell calls across one night's logs, executed unblocked under `--permission-mode bypassPermissions` with no confirmation prompt. Nothing destructive found in what was actually run, but the worker had unrestricted shell access on the host machine by omission, not by design.
+- **`RESULT:APPLIED` accepted with no verification** (`apply/launcher.py`). The parser trusted the model's own success marker unconditionally. Confirmed live: a transcript said "Now let me click Save and Continue" and then printed `RESULT:APPLIED` with no click ever happening, still mid-form -- silently marked applied in the DB with a real timestamp. Now requires a quoted on-page confirmation phrase (not just the marker, and not just the phrase anywhere -- the model's own narrative claim used the same trigger words without it being true) before accepting APPLIED; otherwise routes to a new retryable `failed:unverified_applied` status.
+- **Indeed `--url` retry misrouting**, **uppercase `RESULT:FAILED:CAPTCHA` not promoted to permanent status**, **silent on-page success with no `RESULT:` marker miscounted as failure**, **`ToolSearch` blocked in `--disallowedTools`** (all `apply/launcher.py`), **Canadian postal code space-stripping instruction**, **Workday dropdown async-state race** (both `apply/prompt.py`) -- see prior commits same date.
+
 ## [1.4.0] - 2026-07-22
 
 ### Added
