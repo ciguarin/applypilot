@@ -515,11 +515,21 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         # ToolSearch, and when a session gets deferred, blocking ToolSearch
         # makes the browser/email tools permanently uncallable for that run
         # -- the exact "I don't have access to browser automation tools"
-        # failure seen repeatedly across jobs. Blocking it adds no safety
-        # margin anyway: Bash and the dangerous email actions are already
-        # blocked by name below, so ToolSearch can't be used to reach
-        # anything that isn't already gated.
-        "--disallowedTools", "Bash,mcp__email__list_accounts,mcp__email__send_email,mcp__email__delete_email,mcp__email__create_draft",
+        # failure seen repeatedly across jobs.
+        #
+        # IMPORTANT: this is a blocklist, not an allowlist -- it does NOT
+        # confine the agent to browser+email. This process runs as the same
+        # Claude account as everything else, so ToolSearch can also surface
+        # any account-level connector (Gmail, Calendar, Drive, Canva, Make,
+        # etc.) that happens to be connected, none of which are blocked here.
+        # Confirmed live: a worker used the wrong Gmail connector instead of
+        # its own IMAP email tool after a tool-name mismatch. "Bash" also
+        # does not cover this OS's actual shell tool name ("PowerShell" on
+        # Windows) -- confirmed live via 53 real PowerShell calls across
+        # tonight's logs, executed unblocked under bypassPermissions. Real
+        # fix is an allowlist (browser_*, ToolSearch, the 4 permitted
+        # mcp__email__ tools, nothing else); this blocklist is a stopgap.
+        "--disallowedTools", "Bash,PowerShell,mcp__email__list_accounts,mcp__email__send_email,mcp__email__delete_email,mcp__email__create_draft",
         "--output-format", "stream-json",
         "--verbose", "-",
     ]
