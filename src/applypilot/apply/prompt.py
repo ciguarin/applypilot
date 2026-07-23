@@ -51,6 +51,12 @@ def _build_profile_summary(profile: dict) -> str:
         personal.get("postal_code", ""),
     ]
     lines.append(f"Address: {', '.join(p for p in addr_parts if p)}")
+    # Called out as its own field, not just parsed back out of the combined
+    # Address line above -- confirmed live: the model transcribed "M1P 4V4"
+    # as "M1P4V4" into a separate postal-code form field, dropping the
+    # required space and failing Workday's Canadian postal code validation.
+    if personal.get("postal_code"):
+        lines.append(f"Postal/Zip Code (type exactly, including any space): {personal['postal_code']}")
 
     if personal.get("linkedin_url"):
         lines.append(f"LinkedIn: {personal['linkedin_url']}")
@@ -411,10 +417,13 @@ def build_prompt(job: dict, tailored_resume: str,
 
 == TOOLS AVAILABLE (do NOT call ToolSearch — all tools are pre-loaded) ==
 - Browser: browser_navigate, browser_snapshot, browser_take_screenshot, browser_click, browser_type, browser_fill_form, browser_evaluate, browser_file_upload, browser_press_key, browser_wait_for, browser_scroll, browser_tabs, browser_run_code_unsafe
-- Email (for OTP/verification only): email:list_emails, email:get_email, email:search_emails, email:move_email
+- Email (for OTP/verification only): mcp__email__list_emails, mcp__email__get_email, mcp__email__search_emails, mcp__email__move_email
   IMPORTANT: list_emails reads the inbox at {otp_email}. OTPs sent to {personal['email']} will appear here.
   NEVER switch the application email to a different address to try to receive OTPs — it will not work.
-Use these directly. NEVER call ToolSearch. NEVER call email:list_accounts — it is not needed and wastes a turn.
+  If a tool call to any of these fails with "tool not found," do NOT fall back to any other email/Gmail tool that may
+  appear via ToolSearch — those connect to a DIFFERENT mailbox and will never see the OTP. Retry the exact
+  mcp__email__ name above.
+Use these directly. NEVER call ToolSearch. NEVER call mcp__email__list_accounts — it is not needed and wastes a turn.
 
 == JOB ==
 URL: {_resolve_apply_url(job)}
@@ -444,7 +453,7 @@ Cover Letter PDF: {cl_upload_path or 'N/A'}
 - Hourly/contract/rate-setting flows (full-time salaried only)
 - SSO login (Google/Microsoft OAuth) when NOT configured for this site -> RESULT:FAILED:sso_required
 - Payment info, bank details, SSN/SIN
-- Switching to a different email address mid-application to receive OTPs — NEVER do this. {otp_email} is the only readable inbox. If an OTP doesn't arrive there within 20s, retry once, then RESULT:FAILED:email_verification_blocked.
+- Switching to a different email address mid-application to receive OTPs — NEVER do this. {otp_email} is the only readable inbox. If an OTP doesn't arrive there, wait 25s and check again, then 30s more and check a third time (~70s total, matching the patience window used for login OTPs elsewhere in this prompt — real verification emails routinely take longer than 20s) before RESULT:FAILED:email_verification_blocked.
 
 {salary_section}
 
@@ -535,14 +544,15 @@ RESULT:FAILED:not_eligible_location | RESULT:FAILED:not_eligible_work_auth | RES
 - New tab opened? browser_tabs list/select. Always check after login/apply/sign-in clicks.
 - Workday/Lever pre-fill page: click upload area, browser_file_upload, wait for parse, click Next.
 - Dropdowns — NEVER type verbatim and press Enter. Use this exact flow:
-  1. Click the dropdown/input to open it.
+  1. Click the dropdown/input to open it, then browser_wait_for ~0.5s before reading options -- Workday's custom listbox widgets are React-driven and the option list is an async state update, not an immediate DOM change; snapshotting or clicking too fast can hit a stale/half-open list.
   2. Type 2-3 characters of the target value to filter. browser_snapshot to see filtered results.
   3. If matching options appear: click the closest one (fuzzy OK — "Job Board"="Online Job Board", "Decline"="Prefer not to say", "Not a Veteran"="I am not a protected veteran").
   4. If no results after typing: clear the field (select-all + delete), then browser_snapshot to read ALL available options, then click the closest match.
-  5. Never leave a required dropdown empty. If nothing fits, pick the most neutral/generic option available.
+  5. After clicking your selection, browser_wait_for ~0.5s BEFORE moving to the next field or clicking Next -- selecting an option is also an async state update; moving on immediately can race it and leave the field showing empty/"Select One" despite the click, causing a validation error on submit even though the click itself worked. If a required dropdown still shows unselected after this wait, re-open and re-click once before giving up on it.
+  6. Never leave a required dropdown empty. If nothing fits, pick the most neutral/generic option available.
 - Checkbox won't check? browser_click it directly.
 - Phone with country prefix: type digits only: {phone_digits}
-- Canadian postal codes: strip spaces before typing (M1P 4V4 -> M1P4V4). If it's a lookup dropdown: type the full 6 chars (M1P4V4) to filter first — if exact match appears, click it. If no exact match, clear and type just the FSA (first 3 chars, e.g. M1P) to get nearby options, then click the closest result.
+- Canadian postal codes: type WITH the space exactly as given (e.g. "M1P 4V4") for a plain text field -- confirmed live: Workday's Canadian postal code validation rejects the unspaced form ("M1P4V4" -> invalid). Only strip the space if the field is a lookup dropdown: type the full 6 chars without space (M1P4V4) to filter first — if exact match appears, click it. If no exact match, clear and type just the FSA (first 3 chars, e.g. M1P) to get nearby options, then click the closest result.
 - "How Did You Hear About Us?" / "Source" / "How did you find this job?": open the dropdown, pick the closest option to "Online Job Board" (e.g. "Job Board", "Indeed", "LinkedIn", "Internet/Online"). Never leave it blank.
 - Date fields: {datetime.now().strftime('%m/%d/%Y')}
 - Validation errors? Take snapshot AND screenshot. Fix all, retry.

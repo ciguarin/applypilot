@@ -12,6 +12,32 @@ from applypilot.config import TAILORED_DIR
 
 log = logging.getLogger(__name__)
 
+# ── One-page fitting ─────────────────────────────────────────────────────
+# The template has no awareness of content length -- a short resume leaves
+# visible whitespace, a long one silently spills onto a second PDF page
+# with an arbitrary mid-section break. Fixed by measuring actual rendered
+# height and correcting with CSS zoom (not `transform: scale`) -- zoom
+# triggers real layout reflow, so Chromium's print pagination is computed
+# on the *post-zoom* box and actually avoids/creates the page break as
+# needed. `transform` is purely visual; print engines compute page breaks
+# on the pre-transform layout, so it would not prevent overflow at all.
+
+# Must match the @page rule in build_html()'s CSS.
+_PAGE_HEIGHT_IN = 11.0
+_PAGE_MARGIN_TOP_IN = 0.35
+_PAGE_MARGIN_BOTTOM_IN = 0.35
+_CSS_DPI = 96  # standard CSS px-per-inch, matches Chromium's layout viewport
+_AVAILABLE_HEIGHT_PX = (_PAGE_HEIGHT_IN - _PAGE_MARGIN_TOP_IN - _PAGE_MARGIN_BOTTOM_IN) * _CSS_DPI
+
+# How far content can be compressed/expanded to fit one page. Beyond these,
+# force-fitting would make the resume look either obviously stretched or
+# cramped -- better to leave genuinely-too-long content spilling onto a
+# second page (a real, visible signal the tailoring stage generated too
+# much) than produce something that reads as artificially squeezed.
+_MIN_DENSITY = 0.82
+_MAX_DENSITY = 1.18
+_DENSITY_TOLERANCE = 0.03  # skip the zoom correction if already within 3% of a perfect fit
+
 
 # ── Resume Parser ────────────────────────────────────────────────────────
 
@@ -344,16 +370,62 @@ li {{
 def render_pdf(html: str, output_path: str) -> None:
     """Render HTML to PDF using Playwright's headless Chromium.
 
+    Measures the actual rendered content height and searches for a CSS zoom
+    level that fills as much of one Letter page as possible without
+    overflowing onto a second page -- see the "One-page fitting" comment
+    above for why zoom (not a transform) is the right tool.
+
+    Two things that aren't obvious and both cost real debugging time to find:
+
+    1. The viewport must be set to the actual print content width (page
+       width minus left/right margins) before measuring. `@page` CSS only
+       takes effect inside page.pdf()'s own print pass -- the default
+       on-screen viewport is wider, so text wraps onto fewer lines than it
+       will when actually printed, making any height measured against it
+       meaningless for this purpose.
+    2. Zoom's effect on height is not linear -- zooming in can push a line
+       across a wrap boundary, adding a full extra line's height in one
+       step rather than scaling smoothly. A single computed "target height
+       / measured height" factor reliably overshoots into a second page
+       (confirmed live: a resume that fit fine at zoom 1.1 spilled onto
+       page 2 at the "linearly correct" zoom 1.18). This does a bounded
+       binary search instead, testing each candidate for real rather than
+       trusting the math -- it converges on the largest zoom that still
+       measures within one page, which is the actual goal (fill it as much
+       as possible without ever overflowing).
+
     Args:
         html: Complete HTML string.
         output_path: Path to write the PDF file.
     """
     from playwright.sync_api import sync_playwright
 
+    # Page content width = Letter width minus the @page rule's left+right
+    # margins (0.5in each) -- must match build_html()'s CSS.
+    content_width_px = int((8.5 - 0.5 - 0.5) * _CSS_DPI)
+
     with sync_playwright() as p:
         browser = p.chromium.launch()
-        page = browser.new_page()
+        page = browser.new_page(viewport={"width": content_width_px, "height": 2000})
         page.set_content(html, wait_until="networkidle")
+
+        baseline_height = page.evaluate("document.body.scrollHeight")
+        best_factor = 1.0
+        if baseline_height > 0 and abs(_AVAILABLE_HEIGHT_PX / baseline_height - 1.0) > _DENSITY_TOLERANCE:
+            lo, hi = _MIN_DENSITY, _MAX_DENSITY
+            for _ in range(6):  # 6 iterations narrows the search to well under 1% of the range
+                mid = (lo + hi) / 2
+                page.evaluate(f"document.body.style.zoom = '{mid}'")
+                height = page.evaluate("document.body.scrollHeight")
+                if height <= _AVAILABLE_HEIGHT_PX:
+                    best_factor = mid  # fits -- record it, then try pushing higher to fill more
+                    lo = mid
+                else:
+                    hi = mid  # overflowed -- back off
+            page.evaluate(f"document.body.style.zoom = '{best_factor}'")
+            log.info("Fitted content to one page with zoom %.3f (baseline %dpx vs %dpx available)",
+                      best_factor, baseline_height, int(_AVAILABLE_HEIGHT_PX))
+
         page.pdf(
             path=output_path,
             format="Letter",

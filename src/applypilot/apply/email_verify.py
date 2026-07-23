@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import time
+from email.header import decode_header, make_header
 
 logger = logging.getLogger(__name__)
 
@@ -166,3 +167,82 @@ def find_verification_link(
                 f"no verification email matching {domain_hint!r} newer than uid {min_uid} within {wait_seconds}s"
             )
         time.sleep(poll_interval)
+
+
+# ── Inbox sweep ──────────────────────────────────────────────────────────
+# Backstop for apply/prompt.py's own move_email-after-use instruction on the
+# agent path. The agent follows it most of the time (Archive already holds
+# ~1200 messages), but LLM instruction-following isn't 100%, and a stray
+# OTP/security-code email has no reason to sit in a real personal inbox once
+# consumed. This is pure IMAP + string matching -- no LLM, so it always runs.
+
+_ATS_EMAIL_DOMAINS = (
+    "myworkday.com", "workday.com", "myworkdayjobs.com",
+    "greenhouse-mail.io", "greenhouse.io",
+    "bamboohr.com",
+    "icims.com",
+    "taleo.net",
+    "smartrecruiters.com",
+    "lever.co",
+    "ashbyhq.com",
+    "applytojob.com",
+    "ultipro.com", "ukg.com",
+    "successfactors.com",
+    "workable.com",
+    "jobvite.com",
+)
+
+_VERIFICATION_SUBJECT_PATTERNS = tuple(re.compile(p, re.I) for p in (
+    r"verify your (candidate )?account",
+    r"security code",
+    r"verification code",
+    r"confirm your identity",
+    r"one[- ]time (passcode|code|password)",
+    r"\botp\b",
+    r"reset your password",
+))
+
+
+def _is_ats_sender(sender: str) -> bool:
+    sender_lower = sender.lower()
+    return any(domain in sender_lower for domain in _ATS_EMAIL_DOMAINS)
+
+
+def _is_verification_subject(subject: str) -> bool:
+    return any(pattern.search(subject) for pattern in _VERIFICATION_SUBJECT_PATTERNS)
+
+
+def sweep_verification_emails(destination: str = "Archive", dry_run: bool = False) -> list[dict]:
+    """Archive stray OTP/verification emails left sitting in INBOX.
+
+    Matches on sender domain (known ATS platforms) AND subject content
+    (verification/OTP/security-code language) together -- never body text,
+    never either signal alone -- so ordinary personal mail is never touched
+    even if it happens to say "confirm" or "verify" for unrelated reasons.
+
+    Deliberately does not touch post-application confirmation emails
+    ("Thank you for applying") -- those aren't disposable, they're the
+    applied-to record.
+
+    Returns the list of matched (and, unless dry_run, archived) messages.
+    """
+    conn = _connect()
+    matched: list[dict] = []
+    try:
+        _typ, data = conn.uid("search", None, "ALL")
+        ids = data[0].split() if data and data[0] else []
+        for msg_uid in ids:
+            typ, msg_data = conn.uid("fetch", msg_uid, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT)])")
+            if typ != "OK" or not msg_data or not isinstance(msg_data[0], tuple):
+                continue
+            msg = email.message_from_bytes(msg_data[0][1])
+            sender = str(make_header(decode_header(msg.get("From", ""))))
+            subject = str(make_header(decode_header(msg.get("Subject", ""))))
+            if not (_is_ats_sender(sender) and _is_verification_subject(subject)):
+                continue
+            matched.append({"uid": msg_uid.decode(), "from": sender, "subject": subject})
+            if not dry_run:
+                _archive(conn, msg_uid, destination)
+    finally:
+        conn.logout()
+    return matched

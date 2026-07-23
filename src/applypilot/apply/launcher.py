@@ -154,17 +154,38 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
         conn.execute("BEGIN IMMEDIATE")
 
         if target_url:
-            like = f"%{target_url.split('?')[0].rstrip('/')}%"
+            # Exact match first. The old query OR'd this together with a
+            # query-string-stripped LIKE fallback in one shot -- fine for
+            # path-identified ATS URLs, but for query-string-identified ones
+            # (e.g. Indeed's ?jk=<id>) stripping the query string turns the
+            # LIKE into "any job on this host+path", and since SQL doesn't
+            # prioritize OR branches, a real bug: a live retry against a
+            # specific ?jk=<id> silently matched and re-applied to a
+            # different, unrelated job at the same host instead (confirmed
+            # live -- burned two agent runs re-applying to an already-known
+            # -expired job while the intended job sat untouched).
             row = conn.execute("""
                 SELECT url, title, site, application_url, tailored_resume_path,
                        fit_score, location, full_description, cover_letter_path,
                        apply_attempts
                 FROM jobs
-                WHERE (url = ? OR application_url = ? OR application_url LIKE ? OR url LIKE ?)
+                WHERE (url = ? OR application_url = ?)
                   AND tailored_resume_path IS NOT NULL
                   AND (apply_status IS NULL OR apply_status != 'in_progress')
                 LIMIT 1
-            """, (target_url, target_url, like, like)).fetchone()
+            """, (target_url, target_url)).fetchone()
+            if row is None:
+                like = f"%{target_url.split('?')[0].rstrip('/')}%"
+                row = conn.execute("""
+                    SELECT url, title, site, application_url, tailored_resume_path,
+                           fit_score, location, full_description, cover_letter_path,
+                           apply_attempts
+                    FROM jobs
+                    WHERE (application_url LIKE ? OR url LIKE ?)
+                      AND tailored_resume_path IS NOT NULL
+                      AND (apply_status IS NULL OR apply_status != 'in_progress')
+                    LIMIT 1
+                """, (like, like)).fetchone()
         else:
             blocked_sites, blocked_patterns = _load_blocked()
             # Build parameterized filters to avoid SQL injection
@@ -489,7 +510,16 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         "--mcp-config", str(mcp_config_path),
         "--permission-mode", "bypassPermissions",
         "--no-session-persistence",
-        "--disallowedTools", "Bash,ToolSearch,mcp__email__list_accounts,mcp__email__send_email,mcp__email__delete_email,mcp__email__create_draft",
+        # ToolSearch is NOT blocked here on purpose (confirmed live via real
+        # transcripts): this CLI version defers MCP tool schemas behind
+        # ToolSearch, and when a session gets deferred, blocking ToolSearch
+        # makes the browser/email tools permanently uncallable for that run
+        # -- the exact "I don't have access to browser automation tools"
+        # failure seen repeatedly across jobs. Blocking it adds no safety
+        # margin anyway: Bash and the dangerous email actions are already
+        # blocked by name below, so ToolSearch can't be used to reach
+        # anything that isn't already gated.
+        "--disallowedTools", "Bash,mcp__email__list_accounts,mcp__email__send_email,mcp__email__delete_email,mcp__email__create_draft",
         "--output-format", "stream-json",
         "--verbose", "-",
     ]
@@ -650,7 +680,16 @@ def run_job(job: dict, port: int, worker_id: int = 0,
                     reason = match.group(1).strip() or "unknown"
                     reason = _clean_reason(reason)
                     PROMOTE_TO_STATUS = {"captcha", "expired", "login_issue"}
-                    if reason in PROMOTE_TO_STATUS:
+                    # Case-fold before the membership check -- confirmed live:
+                    # the model wrote "RESULT:FAILED:CAPTCHA" (uppercase reason)
+                    # instead of the documented standalone "RESULT:CAPTCHA", so
+                    # this branch never matched, the failure fell through to a
+                    # plain "failed:CAPTCHA", and _is_permanent_failure() (which
+                    # checks PERMANENT_FAILURES, an all-lowercase set) never
+                    # recognized it as permanent -- losing the capability
+                    # -signature-based smart retry for a real CAPTCHA failure.
+                    if reason.lower() in PROMOTE_TO_STATUS:
+                        reason = reason.lower()
                         add_event(f"[W{worker_id}] {reason.upper()} ({elapsed}s): {job['title'][:30]}")
                         update_state(worker_id, status=reason,
                                      last_action=f"{reason.upper()} ({elapsed}s)")
@@ -660,6 +699,20 @@ def run_job(job: dict, port: int, worker_id: int = 0,
                                  last_action=f"FAILED: {reason[:25]}")
                     return f"failed:{reason}", duration_ms
             return "failed:unknown", duration_ms
+
+        # A run can complete the real submission but never print the
+        # required RESULT: marker -- confirmed live: a job's actual
+        # transcript showed a genuine "Thank You / your application was
+        # submitted successfully" confirmation page, yet fell all the way
+        # through to failed:no_result_line and became eligible for an
+        # auto-retry that would have filed a real duplicate application.
+        # An unambiguous on-page success phrase is treated as APPLIED here
+        # rather than silently miscounting a real submission as a failure.
+        if re.search(r"application (was|has been) (successfully )?submitted|submitted successfully",
+                     output, re.I):
+            add_event(f"[W{worker_id}] APPLIED (inferred, no RESULT line) ({elapsed}s): {job['title'][:30]}")
+            update_state(worker_id, status="applied", last_action=f"APPLIED inferred ({elapsed}s)")
+            return "applied", duration_ms
 
         add_event(f"[W{worker_id}] NO RESULT ({elapsed}s)")
         update_state(worker_id, status="failed", last_action=f"no result ({elapsed}s)")
@@ -994,6 +1047,14 @@ def main(limit: int = 1, target_url: str | None = None,
             f"(${totals['cost']:.3f})[/bold]"
         )
         console.print(f"Logs: {config.LOG_DIR}")
+
+        try:
+            from applypilot.apply import email_verify
+            swept = email_verify.sweep_verification_emails()
+            if swept:
+                console.print(f"[dim]Archived {len(swept)} stray verification email(s) from inbox.[/dim]")
+        except Exception:
+            logger.exception("Inbox sweep failed (non-fatal)")
 
     except KeyboardInterrupt:
         pass

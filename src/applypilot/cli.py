@@ -161,6 +161,7 @@ def apply(
     fail_reason: Optional[str] = typer.Option(None, "--fail-reason", help="Reason for --mark-failed."),
     reset_failed: bool = typer.Option(False, "--reset-failed", help="Reset all failed jobs for retry."),
     reset_stuck: bool = typer.Option(False, "--reset-stuck", help="Clear jobs stuck 'in_progress' from a crashed or killed run."),
+    sweep_inbox: bool = typer.Option(False, "--sweep-inbox", help="Archive stray OTP/verification emails from the inbox and exit."),
 ) -> None:
     """Launch auto-apply to submit job applications."""
     _bootstrap()
@@ -192,6 +193,14 @@ def apply(
         from applypilot.apply.launcher import reset_stuck_jobs
         count = reset_stuck_jobs()
         console.print(f"[green]Reset {count} stuck job(s).[/green]")
+        return
+
+    if sweep_inbox:
+        from applypilot.apply.email_verify import sweep_verification_emails
+        swept = sweep_verification_emails()
+        console.print(f"[green]Archived {len(swept)} verification email(s).[/green]")
+        for m in swept:
+            console.print(f"  [dim]{m['subject'][:60]} — {m['from'][:40]}[/dim]")
         return
 
     # --- Full apply mode ---
