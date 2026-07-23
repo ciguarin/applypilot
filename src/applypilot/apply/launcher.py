@@ -48,6 +48,29 @@ def _load_blocked():
 # How often to poll the DB when the queue is empty (seconds)
 POLL_INTERVAL = config.DEFAULTS["poll_interval"]
 
+# Independent evidence a submission actually reached a confirmation state --
+# not just the model's own say-so. Confirmed live: a transcript said "Now
+# let me click Save and Continue" and then printed RESULT:APPLIED with no
+# click and no confirmation ever happening (still on step 3 of 5, form never
+# submitted) -- the bare marker alone is not trustworthy.
+#
+# The phrase must appear inside quote marks. An earlier version of this
+# regex matched the phrase anywhere, and the very same false-positive
+# transcript defeated it: the model's own narrative summary ("The
+# application has been successfully submitted through the Revvity job
+# application form") uses the identical trigger words without it being
+# true -- a model can just say that. Every verified-real APPLIED tonight
+# (TribalScale, Amgen, CCHF, NationGraph) instead *quoted* literal on-page
+# text ("Thank You for applying", "Application Submitted", etc.); requiring
+# the quote marks is what actually distinguishes a reported page state from
+# a claimed one.
+CONFIRMATION_PHRASE_RE = re.compile(
+    r'["\'][^"\'\n]{0,100}'
+    r'(submitted successfully|successfully submitted|thank you for applying|application submitted|candidate home)'
+    r'[^"\'\n]{0,100}["\']',
+    re.I,
+)
+
 # Thread-safe shutdown coordination
 _stop_event = threading.Event()
 
@@ -678,6 +701,16 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         # model wrote "RESULT: APPLIED" once.
         for result_status in ["APPLIED", "EXPIRED", "CAPTCHA", "LOGIN_ISSUE"]:
             if re.search(rf"RESULT:\s*{result_status}\b", output):
+                # APPLIED gets extra scrutiny: it's the one status where a
+                # false positive is silent and costly (never retried, and
+                # nobody notices) rather than just an over-cautious failure.
+                # Require independent confirmation-page evidence alongside
+                # the model's own marker, not just the marker alone.
+                if result_status == "APPLIED" and not CONFIRMATION_PHRASE_RE.search(output):
+                    add_event(f"[W{worker_id}] UNVERIFIED APPLIED ({elapsed}s): {job['title'][:30]}")
+                    update_state(worker_id, status="failed",
+                                 last_action=f"unverified applied ({elapsed}s)")
+                    return "failed:unverified_applied", duration_ms
                 add_event(f"[W{worker_id}] {result_status} ({elapsed}s): {job['title'][:30]}")
                 update_state(worker_id, status=result_status.lower(),
                              last_action=f"{result_status} ({elapsed}s)")
@@ -718,8 +751,7 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         # auto-retry that would have filed a real duplicate application.
         # An unambiguous on-page success phrase is treated as APPLIED here
         # rather than silently miscounting a real submission as a failure.
-        if re.search(r"application (was|has been) (successfully )?submitted|submitted successfully",
-                     output, re.I):
+        if CONFIRMATION_PHRASE_RE.search(output):
             add_event(f"[W{worker_id}] APPLIED (inferred, no RESULT line) ({elapsed}s): {job['title'][:30]}")
             update_state(worker_id, status="applied", last_action=f"APPLIED inferred ({elapsed}s)")
             return "applied", duration_ms
