@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [1.5.1] - 2026-07-28
+
+### Fixed
+- **Dropdown/`<select>` fields silently reverting after being "set" via `browser_evaluate`** (`apply/prompt.py`). The FORM TRICKS guidance never told the agent that `@playwright/mcp` exposes `browser_select_option` -- a real Playwright-level selection, not a JS value hack -- so it was missing from the tool list entirely. For native `<select>` elements the agent fell back to JS `.value =` assignment or manual click/keyboard attempts, which don't go through a React/framework-controlled input's expected event path and get silently reverted. Confirmed live on two jobs: 401auto's required Province `<select>` (`form_validation_blocked`) and a Greenhouse application form (`form_interaction_issue`), both otherwise fully filled out. Added `browser_select_option` to the tool list and split the Dropdowns guidance: native `<select>`/combobox elements now use `browser_select_option` directly; custom div/li-based listbox widgets (Workday, etc., which have no real `<select>` to target) keep the existing click-open/type-filter/click-option flow.
+
 ## [1.5.0] - 2026-07-23
 
 ### Fixed
