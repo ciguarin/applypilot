@@ -1,7 +1,7 @@
 # ApplyPilot setup script — Windows
 # Usage (run in PowerShell):
 #   Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
-#   irm https://raw.githubusercontent.com/ciguarin/applypilot/v1/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/ciguarin/applypilot/main/install.ps1 | iex
 
 $ErrorActionPreference = "Stop"
 $APPLYPILOT_DIR = "$env:USERPROFILE\.applypilot"

@@ -583,7 +583,7 @@ def update() -> None:
                 "  catch { Start-Sleep 1 } "
                 "}; "
                 "Write-Host 'Installing update...'; "
-                "uv tool install git+https://github.com/ciguarin/applypilot@v1 --force --refresh; "
+                "uv tool install git+https://github.com/ciguarin/applypilot@main --force --refresh; "
                 "Write-Host 'Running post-install repair...'; "
                 "applypilot repair; "
                 "Write-Host ''; Write-Host 'Done — close this window.'; "
@@ -597,7 +597,7 @@ def update() -> None:
         # Non-TTY (SSH): update inline, exe lock is not held by this session
 
     result = subprocess.run(
-        ["uv", "tool", "install", "git+https://github.com/ciguarin/applypilot@v1", "--force", "--refresh"],
+        ["uv", "tool", "install", "git+https://github.com/ciguarin/applypilot@main", "--force", "--refresh"],
         capture_output=False,
     )
     if result.returncode != 0:

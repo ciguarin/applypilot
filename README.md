@@ -18,13 +18,13 @@ Built iteratively with [Claude Code](https://claude.ai/code) as a development ac
 
 **macOS**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ciguarin/applypilot/v1/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ciguarin/applypilot/main/install.sh | bash
 ```
 
 **Windows** (PowerShell)
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
-irm https://raw.githubusercontent.com/ciguarin/applypilot/v1/install.ps1 | iex
+irm https://raw.githubusercontent.com/ciguarin/applypilot/main/install.ps1 | iex
 ```
 
 Then run the setup wizard:

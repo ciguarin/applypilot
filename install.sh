@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ApplyPilot setup script — macOS
-# Usage: curl -fsSL https://raw.githubusercontent.com/ciguarin/applypilot/v1/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/ciguarin/applypilot/main/install.sh | bash
 set -e
 
 APPLYPILOT_DIR="$HOME/.applypilot"

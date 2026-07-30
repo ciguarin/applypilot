@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [1.5.3] - 2026-07-30
+
+### Changed
+- **Default branch renamed `v1` → `main`**, matching standard convention instead of a version-number branch name. Updated every reference to the old branch name: `README.md` install one-liners, `install.sh`/`install.ps1` usage comments, and — the one that actually mattered for existing installs — `applypilot update`'s own `uv tool install git+https://github.com/ciguarin/applypilot@v1` command in `cli.py`, which would have silently broken for every user on their next update once the branch stopped existing under the old name.
+
 ## [1.5.2] - 2026-07-30
 
 ### Fixed
