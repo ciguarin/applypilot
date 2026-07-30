@@ -15,6 +15,8 @@ import time
 
 import httpx
 
+from applypilot.config import env_key_set
+
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -32,14 +34,14 @@ def _detect_provider() -> tuple[str, str, str]:
     local_url = os.environ.get("LLM_URL", "")
     model_override = os.environ.get("LLM_MODEL", "")
 
-    if gemini_key and not local_url:
+    if env_key_set("GEMINI_API_KEY") and not local_url:
         return (
             "https://generativelanguage.googleapis.com/v1beta/openai",
             model_override or "gemini-2.0-flash",
             gemini_key,
         )
 
-    if openai_key and not local_url:
+    if env_key_set("OPENAI_API_KEY") and not local_url:
         return (
             "https://api.openai.com/v1",
             model_override or "gpt-4o-mini",

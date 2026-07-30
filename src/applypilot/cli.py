@@ -24,7 +24,7 @@ app = typer.Typer(
 )
 # Force plain-text mode over SSH / non-TTY (avoids Rich's Win32 console renderer
 # which crashes on Unicode when stdout is a pipe rather than a real console).
-from applypilot.config import make_console
+from applypilot.config import env_key_set, make_console
 console = make_console()
 log = logging.getLogger(__name__)
 
@@ -456,9 +456,9 @@ def doctor() -> None:
 
     # --- Tier 2 checks ---
     import os
-    has_gemini = bool(os.environ.get("GEMINI_API_KEY"))
-    has_openai = bool(os.environ.get("OPENAI_API_KEY"))
-    has_local = bool(os.environ.get("LLM_URL"))
+    has_gemini = env_key_set("GEMINI_API_KEY")
+    has_openai = env_key_set("OPENAI_API_KEY")
+    has_local = env_key_set("LLM_URL")
     if has_gemini:
         model = os.environ.get("LLM_MODEL", "gemini-2.0-flash")
         results.append(("LLM API key", ok_mark, f"Gemini ({model})"))
@@ -497,8 +497,7 @@ def doctor() -> None:
                         "Install Node.js 18+ from nodejs.org (needed for auto-apply)"))
 
     # CapSolver (optional)
-    capsolver = os.environ.get("CAPSOLVER_API_KEY")
-    if capsolver:
+    if env_key_set("CAPSOLVER_API_KEY"):
         results.append(("CapSolver API key", ok_mark, "CAPTCHA solving enabled"))
     else:
         results.append(("CapSolver API key", "[dim]optional[/dim]",
@@ -731,11 +730,11 @@ def config_show() -> None:
 
     # LLM / API
     model = os.environ.get("LLM_MODEL", "gemini-2.0-flash")
-    if os.environ.get("GEMINI_API_KEY"):
+    if env_key_set("GEMINI_API_KEY"):
         provider = "gemini"
-    elif os.environ.get("OPENAI_API_KEY"):
+    elif env_key_set("OPENAI_API_KEY"):
         provider = "openai"
-    elif os.environ.get("LLM_URL"):
+    elif env_key_set("LLM_URL"):
         provider = os.environ.get("LLM_URL")
     else:
         provider = "not set"

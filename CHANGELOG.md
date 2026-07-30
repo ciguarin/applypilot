@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/): [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [1.5.7] - 2026-07-30
+
+### Fixed
+- **`doctor`, `status`, and tier detection reported an unedited `.env.example` placeholder (`your_gemini_api_key_here`, `your_capsolver_key_here`) as a configured, working key.** All were plain truthiness checks (`bool(os.environ.get(...))`), and a placeholder string is non-empty. Found live in the fresh-install container test: `doctor` showed `LLM API key OK Gemini` and `Tier 2 (AI Scoring & Tailoring)` unlocked on an install that had never had a real key entered, and would have failed with an opaque provider auth error on the first real `score` call instead of a clear "not configured" message upfront. Added `config.env_key_set()`, a shared check that also rejects the known example placeholder values, and routed every place that checks whether an LLM/CapSolver key is configured through it: `config.get_tier()`, `config.check_tier()`, `cli.py`'s `doctor` and `status` commands, and `llm.py`'s actual provider-selection logic (the one that matters most, since that's what previously would have silently tried to call Gemini with the literal placeholder string as the API key).
+
 ## [1.5.6] - 2026-07-30
 
 ### Fixed

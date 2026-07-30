@@ -1,6 +1,6 @@
 [project]
 name = "applypilot"
-version = "1.5.6"
+version = "1.5.7"
 description = "AI-powered job application pipeline: Canadian internship edition"
 readme = "README.md"
 license = "AGPL-3.0-only"

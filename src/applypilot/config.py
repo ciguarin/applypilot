@@ -17,6 +17,23 @@ def make_console():
     from rich.console import Console
     return Console(force_terminal=sys.stdout.isatty(), highlight=False)
 
+# Placeholder values shipped in .env.example. An unedited copy of that file
+# sets these literally, which reads as "configured" to a plain truthiness
+# check even though no real key is present.
+_PLACEHOLDER_ENV_VALUES = {
+    "your_gemini_api_key_here",
+    "your_openai_key_here",
+    "your_openrouter_key_here",
+    "your_capsolver_key_here",
+}
+
+
+def env_key_set(name: str) -> bool:
+    """True if an env var holds a real value, not empty and not an unedited example placeholder."""
+    val = os.environ.get(name, "").strip()
+    return bool(val) and val not in _PLACEHOLDER_ENV_VALUES
+
+
 # User data directory: all user-specific files live here
 APP_DIR = Path(os.environ.get("APPLYPILOT_DIR", Path.home() / ".applypilot"))
 
@@ -266,7 +283,7 @@ def get_tier() -> int:
     """
     load_env()
 
-    has_llm = any(os.environ.get(k) for k in ("GEMINI_API_KEY", "OPENAI_API_KEY", "LLM_URL"))
+    has_llm = any(env_key_set(k) for k in ("GEMINI_API_KEY", "OPENAI_API_KEY", "LLM_URL"))
     if not has_llm:
         return 1
 
@@ -298,7 +315,7 @@ def check_tier(required: int, feature: str) -> None:
     _console = Console(stderr=True)
 
     missing: list[str] = []
-    if required >= 2 and not any(os.environ.get(k) for k in ("GEMINI_API_KEY", "OPENAI_API_KEY", "LLM_URL")):
+    if required >= 2 and not any(env_key_set(k) for k in ("GEMINI_API_KEY", "OPENAI_API_KEY", "LLM_URL")):
         missing.append("LLM API key: run [bold]applypilot init[/bold] or set GEMINI_API_KEY")
     if required >= 3:
         if not shutil.which("claude"):
