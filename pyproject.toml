@@ -25,7 +25,7 @@ dependencies = [
     "playwright>=1.40",
     "python-dotenv>=1.0",
     "pyyaml>=6.0",
-    "pypdf>=4.0",
+    "pypdf>=6.14.2",
     ]
 
 [project.optional-dependencies]
