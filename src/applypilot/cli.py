@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from logging.handlers import RotatingFileHandler
 from typing import Optional
 
 import typer
@@ -10,11 +11,23 @@ from rich.console import Console
 from rich.table import Table
 
 from applypilot import __version__
+from applypilot.config import LOG_DIR
 
+# Every logger.exception()/log.info() call in the package (24+ call sites)
+# went to stderr only, which isn't captured for background daemon/worker
+# runs -- crashes in code paths like the deterministic Workday fast path
+# were silently discarded with no trace anywhere on disk. A file handler
+# fixes this for every current and future call site at once, instead of
+# patching each one individually with its own add_event() call.
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
     datefmt="%H:%M:%S",
+    handlers=[
+        logging.StreamHandler(),
+        RotatingFileHandler(LOG_DIR / "applypilot.log", maxBytes=5_000_000, backupCount=3, encoding="utf-8"),
+    ],
 )
 
 app = typer.Typer(

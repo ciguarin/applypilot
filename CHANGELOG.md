@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/): [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [1.5.8] - 2026-07-30
+
+### Fixed
+- **`logging.basicConfig()` had no file handler, so every `logger.exception()`/`log.info()` call in the package (24+ call sites) went to stderr only** and was silently discarded for background daemon/worker runs, which don't have their stderr captured anywhere. Found while investigating why the deterministic Workday apply fast path (`apply/platforms/workday.py`) was crashing with no trace on some jobs: the crash handler in `_try_deterministic_fast_path()` only called `logger.exception()`, so the actual failure reason went nowhere on disk, only the generic "falling back to agent" behavior was visible, with no way to tell a crash from an intentional bail-out. Added a `RotatingFileHandler` writing to `~/.applypilot/logs/applypilot.log` alongside the existing stderr handler, fixing this for every current and future call site at once instead of patching each crash site individually with its own event-logging call. Also added an explicit `add_event()` call to that specific crash handler so it shows up in the same daemon-log dashboard operators already check, not just the new file.
+
 ## [1.5.7] - 2026-07-30
 
 ### Fixed

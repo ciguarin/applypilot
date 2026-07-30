@@ -487,8 +487,9 @@ def _try_deterministic_fast_path(job: dict, port: int, resume_pdf: Path | None,
         logger.info("[workday] fast-path bailed, falling back to agent: %s", e.reason)
         add_event(f"[W{worker_id}] Workday fast-path bailed: {e.reason[:50]}")
         return None
-    except Exception:
+    except Exception as e:
         logger.exception("[workday] fast-path crashed, falling back to agent")
+        add_event(f"[W{worker_id}] Workday fast-path crashed: {type(e).__name__}: {str(e)[:80]}")
         return None
 
 
