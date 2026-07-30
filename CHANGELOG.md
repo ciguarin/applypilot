@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/): [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [1.5.6] - 2026-07-30
+
+### Fixed
+- **`install.sh`/`install.ps1`'s discovery-dependency step failed with `No module named pip`** on a genuinely fresh install (confirmed live in a clean Ubuntu container, no prior applypilot install). `uv tool install` creates a Python environment with no `pip` in it, and the install scripts called `"$APPLYPILOT_PY" -m pip install ...` directly, which doesn't exist in that environment, aborting the rest of setup (`set -e`) before config templates, daemon registration, or anything after it ever ran. `bootstrap.py`'s `install_jobspy()` had already been fixed to use `uv pip install --python <path>` instead (no dependency on pip existing in the target environment), evidently after some earlier debugging, but the install scripts' own duplicated inline version of the same step was never updated to match, and was also missing `pandas` as an explicit dependency (present in `install_jobspy()`, silently absent here since jobspy is installed with `--no-deps`). Both scripts now match `bootstrap.py`'s working implementation exactly.
+
 ## [1.5.5] - 2026-07-30
 
 ### Fixed

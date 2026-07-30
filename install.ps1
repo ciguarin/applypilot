@@ -29,8 +29,8 @@ $pkg = & $uvPython -c "import applypilot, os; print(os.path.dirname(applypilot._
 
 # ── 3. Discovery dependencies (jobspy) ───────────────────────────────────────
 Write-Host "Installing discovery dependencies..."
-& $uvPython -m pip install --no-deps python-jobspy --quiet 2>$null
-& $uvPython -m pip install pydantic tls-client requests markdownify regex --quiet 2>$null
+& uv pip install --no-deps python-jobspy --python $uvPython --quiet 2>$null
+& uv pip install pandas pydantic tls-client requests markdownify regex --python $uvPython --quiet 2>$null
 Write-Host "OK python-jobspy installed"
 
 # ── 4. Node.js MCPs ───────────────────────────────────────────────────────────

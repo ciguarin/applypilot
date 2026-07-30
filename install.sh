@@ -29,8 +29,8 @@ PKG="$("$APPLYPILOT_PY" -c 'import applypilot, os; print(os.path.dirname(applypi
 
 # ── 3. Discovery dependencies (jobspy) ───────────────────────────────────────
 echo "Installing discovery dependencies..."
-"$APPLYPILOT_PY" -m pip install --no-deps python-jobspy --quiet
-"$APPLYPILOT_PY" -m pip install pydantic tls-client requests markdownify regex --quiet
+uv pip install --no-deps python-jobspy --python "$APPLYPILOT_PY" --quiet
+uv pip install pandas pydantic tls-client requests markdownify regex --python "$APPLYPILOT_PY" --quiet
 echo "✓ python-jobspy installed"
 
 # ── 4. Node.js MCPs (pre-install so sessions never download at runtime) ────────
