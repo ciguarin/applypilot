@@ -19,7 +19,7 @@ echo "✓ uv $(uv --version)"
 
 # ── 2. applypilot (install from git) ──────────────────────────────────────────
 echo "Installing applypilot..."
-uv tool install "git+$REPO@v1" --force
+uv tool install "git+$REPO@main" --force
 export PATH="$HOME/.local/bin:$PATH"
 echo "✓ applypilot $(applypilot --version 2>/dev/null || echo installed)"
 

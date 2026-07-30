@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/): [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [1.5.5] - 2026-07-30
+
+### Fixed
+- **`install.sh` and `install.ps1` still pointed `uv tool install "git+$REPO@v1"` at the deleted `v1` branch.** Found while setting up a real fresh-install test in a clean container: the 1.5.3 branch-rename pass fixed the README's install one-liners (the URLs pointing at the raw script files) and `cli.py`'s `applypilot update` command, but missed this line inside the scripts themselves. Since `v1` no longer exists as a branch, both public install one-liners were broken for any new user from the moment `v1` was deleted until this fix. Also fixed a now-stale reference to `@v1` and `push to v1` in `CONTRIBUTING.md`.
+
 ## [1.5.4] - 2026-07-30
 
 ### Fixed

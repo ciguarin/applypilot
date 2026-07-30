@@ -94,11 +94,11 @@ If the README uses a different table format, add a new parser function and regis
 
 1. Bump `version` in `pyproject.toml`
 2. Update `CHANGELOG.md`
-3. Commit and push to `v1`
+3. Commit and push to `main`
 4. `git tag vX.Y.Z && git push origin vX.Y.Z`
 5. `gh release create vX.Y.Z --title "vX.Y.Z" --notes "..."`
 
-Install scripts reference `@v1` (the branch) so users always get the latest on that line. Pin to a specific tag in the install URL when making a breaking change that warrants a new major branch.
+Install scripts reference `@main` (the branch) so users always get the latest on that line. Pin to a specific tag in the install URL when making a breaking change that warrants a new major branch.
 
 ## License
 

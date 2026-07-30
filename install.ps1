@@ -19,7 +19,7 @@ Write-Host "OK uv $(uv --version)"
 
 # ── 2. applypilot (install from git) ──────────────────────────────────────────
 Write-Host "Installing applypilot..."
-uv tool install "git+$REPO@v1" --force
+uv tool install "git+$REPO@main" --force
 $env:PATH = "$env:USERPROFILE\.local\bin;$env:PATH"
 Write-Host "OK applypilot $(applypilot --version 2>$null)"
 
