@@ -8,10 +8,6 @@ Automated job application pipeline for Canadian CS internships. Discovers listin
 
 Fork of [Pickle-Pixel/ApplyPilot](https://github.com/Pickle-Pixel/ApplyPilot) — rebuilt for Canadian students: intern-first discovery, Canadian job board targeting, city-aware filtering, and a setup wizard that actually works.
 
-## Development methodology
-
-Built iteratively with [Claude Code](https://claude.ai/code) as a development accelerator, not a replacement for engineering judgment — every entry in [CHANGELOG.md](CHANGELOG.md) documents a root-cause diagnosis (not just a symptom fix) and cites how it was verified live against a real job application before being considered done. Roughly three-quarters of commits carry AI co-authorship attribution; the rest are hand-written. Both are normal parts of how this project gets built — see `git log` for the exact split.
-
 ---
 
 ## Install
