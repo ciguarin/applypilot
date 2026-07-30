@@ -229,6 +229,8 @@ CRITICAL RULE: When ANY CAPTCHA appears (hCaptcha, reCAPTCHA, Turnstile -- regar
 3. ONLY go to MANUAL FALLBACK if CapSolver returns errorId > 0
 Do NOT skip the API call based on what the CAPTCHA looks like. CapSolver solves CAPTCHAs server-side -- it does NOT need to see or interact with images, puzzles, or games. Even "drag the pipe" or "click all traffic lights" hCaptchas are solved via API token, not visually. ALWAYS try the API first.
 
+IMPORTANT: STEP 1 and STEP 2 below use browser_run_code_unsafe, NOT browser_evaluate. Most ATS sites (BambooHR, Greenhouse, Workday, etc.) send a Content-Security-Policy header that does not allowlist api.capsolver.com, so a fetch() run via browser_evaluate (page JS context) gets silently blocked by the page's own CSP -- it will look like a CORS/network failure but is not something CapSolver's API can fix, since the browser refuses to even send the request. browser_run_code_unsafe executes in the Playwright server's Node.js process instead of the page, so its fetch() calls are not subject to the page's CSP at all. STEP 3 (token injection) must stay on browser_evaluate since it needs to write into the page's own DOM/globals.
+
 --- CAPTCHA DETECT ---
 Run this browser_evaluate after every navigation, Apply/Submit/Login click, or when a page feels stuck.
 IMPORTANT: Detection order matters. hCaptcha elements also have data-sitekey, so check hCaptcha BEFORE reCAPTCHA.
@@ -293,10 +295,10 @@ Result actions:
 - Any other type -> proceed to CAPTCHA SOLVE below.
 
 --- CAPTCHA SOLVE ---
-Three steps: createTask -> poll -> inject. Do each as a separate browser_evaluate call.
+Three steps: createTask -> poll -> inject. Do each as a separate call (createTask/poll use browser_run_code_unsafe, inject uses browser_evaluate -- see IMPORTANT note above for why).
 
 STEP 1 -- CREATE TASK (copy this exactly, fill in the 3 placeholders):
-browser_evaluate function: async () => {{{{
+browser_run_code_unsafe code: async (page) => {{{{
   const r = await fetch('https://api.capsolver.com/createTask', {{{{
     method: 'POST',
     headers: {{{{'Content-Type': 'application/json'}}}},
@@ -328,7 +330,7 @@ If errorId > 0 -> CAPTCHA SOLVE failed. Go to MANUAL FALLBACK.
 
 STEP 2 -- POLL (replace TASK_ID with the taskId from step 1):
 Loop: browser_wait_for time: 3, then run:
-browser_evaluate function: async () => {{{{
+browser_run_code_unsafe code: async (page) => {{{{
   const r = await fetch('https://api.capsolver.com/getTaskResult', {{{{
     method: 'POST',
     headers: {{{{'Content-Type': 'application/json'}}}},

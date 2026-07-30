@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [1.5.2] - 2026-07-30
+
+### Fixed
+- **CapSolver API calls silently blocked by the target page's own CSP** (`apply/prompt.py`). CAPTCHA SOLVE steps 1 and 2 (`createTask`/`getTaskResult`) ran as `browser_evaluate`, which executes in the page's own JS context -- subject to that page's Content-Security-Policy. Most ATS platforms (confirmed on BambooHR) ship a `default-src`/`connect-src` CSP that does not allowlist `api.capsolver.com`, so the browser refuses to even send the `fetch()`, which reads to the agent as a CORS/network failure that CapSolver's own API can't be blamed for (confirmed CapSolver's API itself sends permissive `access-control-allow-origin: *`). This silently defeated the CapSolver flow on any CSP-locked-down site regardless of solve quality, always falling through to MANUAL FALLBACK. Confirmed live: 401auto's reCAPTCHA v2 checkbox (in a cross-origin iframe) could not be solved via CapSolver despite Province selection and every other field succeeding (1.5.1 fix confirmed working in the same run). Switched STEP 1/2 to `browser_run_code_unsafe`, which runs in the Playwright server's own Node.js process rather than the page -- not subject to the page's CSP at all. STEP 3 (token injection into the page DOM) stays on `browser_evaluate` since it must run in page context.
+
 ## [1.5.1] - 2026-07-28
 
 ### Fixed
