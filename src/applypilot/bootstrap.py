@@ -120,7 +120,7 @@ def daemon_status() -> dict:
         )
         if r.returncode != 0:
             return {"registered": False, "enabled": False, "next_run": "", "last_run": "",
-                    "detail": "Not in Task Scheduler — re-run the installer or `applypilot repair`"}
+                    "detail": "Not in Task Scheduler, re-run the installer or `applypilot repair`"}
 
         def _field(name: str, default: str) -> str:
             return next(
@@ -135,7 +135,7 @@ def daemon_status() -> dict:
             "enabled": enabled,
             "next_run": _field("Next Run Time", "scheduled"),
             "last_run": _field("Last Run Time", "never"),
-            "detail": f"Task Scheduler — state: {state}",
+            "detail": f"Task Scheduler, state: {state}",
         }
 
     elif sys.platform == "darwin":
@@ -146,10 +146,10 @@ def daemon_status() -> dict:
                     "detail": "LaunchAgent loaded"}
         elif plist.exists():
             return {"registered": True, "enabled": False, "next_run": "", "last_run": "",
-                    "detail": f"plist exists but not loaded — run: applypilot daemon enable"}
+                    "detail": f"plist exists but not loaded, run: applypilot daemon enable"}
         else:
             return {"registered": False, "enabled": False, "next_run": "", "last_run": "",
-                    "detail": "Not installed — re-run the installer"}
+                    "detail": "Not installed, re-run the installer"}
 
     return {"registered": False, "enabled": False, "next_run": "", "last_run": "",
             "detail": "Daemon control not supported on this platform"}

@@ -17,7 +17,7 @@ def make_console():
     from rich.console import Console
     return Console(force_terminal=sys.stdout.isatty(), highlight=False)
 
-# User data directory — all user-specific files live here
+# User data directory: all user-specific files live here
 APP_DIR = Path(os.environ.get("APPLYPILOT_DIR", Path.home() / ".applypilot"))
 
 # Core paths
@@ -203,9 +203,9 @@ def load_login_methods() -> dict[str, str]:
     """Load per-site login method overrides from sites.yaml.
 
     Returns a dict mapping URL substrings to login method:
-      "email"         — default email+password (default if not specified)
-      "google_sso"    — click 'Sign in with Google' and handle OAuth
-      "microsoft_sso" — click 'Sign in with Microsoft' and handle OAuth
+      "email"         : default email+password (default if not specified)
+      "google_sso"    : click 'Sign in with Google' and handle OAuth
+      "microsoft_sso" : click 'Sign in with Microsoft' and handle OAuth
     """
     cfg = load_sites_config()
     return cfg.get("login_methods", {})
@@ -218,7 +218,7 @@ def load_base_urls() -> dict[str, str | None]:
 
 
 # ---------------------------------------------------------------------------
-# Default values — referenced across modules instead of magic numbers
+# Default values: referenced across modules instead of magic numbers
 # ---------------------------------------------------------------------------
 
 DEFAULTS = {
@@ -241,7 +241,7 @@ def load_env():
 
 
 # ---------------------------------------------------------------------------
-# Tier system — feature gating by installed dependencies
+# Tier system: feature gating by installed dependencies
 # ---------------------------------------------------------------------------
 
 TIER_LABELS = {
@@ -299,14 +299,14 @@ def check_tier(required: int, feature: str) -> None:
 
     missing: list[str] = []
     if required >= 2 and not any(os.environ.get(k) for k in ("GEMINI_API_KEY", "OPENAI_API_KEY", "LLM_URL")):
-        missing.append("LLM API key — run [bold]applypilot init[/bold] or set GEMINI_API_KEY")
+        missing.append("LLM API key: run [bold]applypilot init[/bold] or set GEMINI_API_KEY")
     if required >= 3:
         if not shutil.which("claude"):
-            missing.append("Claude Code CLI — install from [bold]https://claude.ai/code[/bold]")
+            missing.append("Claude Code CLI: install from [bold]https://claude.ai/code[/bold]")
         try:
             get_chrome_path()
         except FileNotFoundError:
-            missing.append("Chrome/Chromium — install or set CHROME_PATH")
+            missing.append("Chrome/Chromium: install or set CHROME_PATH")
 
     _console.print(
         f"\n[red]'{feature}' requires {TIER_LABELS.get(required, f'Tier {required}')} (Tier {required}).[/red]\n"

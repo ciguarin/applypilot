@@ -269,7 +269,7 @@ def _run_one_search(
         return {"new": 0, "existing": 0, "errors": 0, "filtered": 0, "total": 0, "label": label}
 
     # Filter by location before storing.
-    # Skip location filtering for remote searches — we already told the source
+    # Skip location filtering for remote searches. We already told the source
     # to return remote jobs, so filtering by city string is redundant and
     # incorrectly drops jobs whose location string says "Toronto, ON" rather
     # than "Remote". Only filter when accept_locs is non-empty and the search

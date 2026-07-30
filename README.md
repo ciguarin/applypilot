@@ -6,7 +6,7 @@
 
 Automated job application pipeline for Canadian CS internships. Discovers listings from curated GitHub repos and job boards, scores them against your profile, tailors your resume, writes cover letters, and submits applications autonomously.
 
-Fork of [Pickle-Pixel/ApplyPilot](https://github.com/Pickle-Pixel/ApplyPilot) — rebuilt for Canadian students: intern-first discovery, Canadian job board targeting, city-aware filtering, and a setup wizard that actually works.
+Fork of [Pickle-Pixel/ApplyPilot](https://github.com/Pickle-Pixel/ApplyPilot), rebuilt for Canadian students: intern-first discovery, Canadian job board targeting, city-aware filtering, and a setup wizard that actually works.
 
 ---
 
@@ -33,11 +33,11 @@ applypilot init
 ## Requirements
 
 - Python 3.11+
-- [Git](https://git-scm.com) — required by the installer
-- [uv](https://astral.sh/uv) — installed automatically by the script
+- [Git](https://git-scm.com): required by the installer
+- [uv](https://astral.sh/uv): installed automatically by the script
 - An LLM API key: [Gemini](https://aistudio.google.com) (free tier works), OpenAI, or any OpenRouter model
-- Node.js 18+ and a Chromium browser — only needed for the auto-apply stage (Tier 3)
-- [Claude Code](https://claude.ai/code) CLI — only needed for the auto-apply stage (Tier 3)
+- Node.js 18+ and a Chromium browser: only needed for the auto-apply stage (Tier 3)
+- [Claude Code](https://claude.ai/code) CLI: only needed for the auto-apply stage (Tier 3)
 
 ---
 
@@ -79,8 +79,8 @@ applypilot apply --limit 5 --workers 2
 
 ## Discovery sources
 
-**GitHub README** (highest signal — ~80% high-fit rate)
-Polls two curated Canadian internship lists on every run with SHA-based change detection — skips the fetch if nothing changed:
+**GitHub README** (highest signal, ~80% high-fit rate)
+Polls two curated Canadian internship lists on every run with SHA-based change detection. Skips the fetch if nothing changed:
 - [negarprh/Canadian-Tech-Internships-2026](https://github.com/negarprh/Canadian-Tech-Internships-2026)
 - [hanzili/canada_sde_intern_position](https://github.com/hanzili/canada_sde_intern_position)
 
@@ -130,7 +130,7 @@ applypilot config blocked     # add/remove sites or URL patterns the apply stage
 | `profile.json` | Your info: name, education, skills, locked resume bullets, project descriptions |
 | `searches.yaml` | Target queries, locations, job boards |
 | `.env` | API keys, model override, feature flags |
-| `applypilot.db` | SQLite pipeline state — the conveyor belt |
+| `applypilot.db` | SQLite pipeline state: the conveyor belt |
 | `tailored_resumes/` | Per-job tailored resumes (txt + pdf) |
 | `cover_letters/` | Per-job cover letters (txt + pdf) |
 
@@ -140,8 +140,8 @@ applypilot config blocked     # add/remove sites or URL patterns the apply stage
 
 The installer sets up a background daemon that runs `applypilot run` followed by `applypilot apply` every 12 hours:
 
-- **macOS** — LaunchAgent (`~/Library/LaunchAgents/com.applypilot.apply.plist`)
-- **Windows** — Task Scheduler (`ApplyPilot.Apply`)
+- **macOS**: LaunchAgent (`~/Library/LaunchAgents/com.applypilot.apply.plist`)
+- **Windows**: Task Scheduler (`ApplyPilot.Apply`)
 
 Control it directly without touching Task Scheduler or `launchctl`:
 
@@ -152,7 +152,7 @@ applypilot daemon disable   # pause it without unregistering
 applypilot daemon run-now   # trigger a run immediately, outside its schedule
 ```
 
-If a run crashes or gets killed mid-job, `applypilot apply` clears any job left stuck `in_progress` automatically on its next run — no manual database surgery needed. To do it without launching a full run: `applypilot apply --reset-stuck`.
+If a run crashes or gets killed mid-job, `applypilot apply` clears any job left stuck `in_progress` automatically on its next run. No manual database surgery needed. To do it without launching a full run: `applypilot apply --reset-stuck`.
 
 ---
 
@@ -170,7 +170,7 @@ applypilot update
 |------|----------|-----------|
 | Discovery | US job boards via JobSpy | JobSpy targeting Canadian Indeed index + GitHub-curated Canadian internship lists |
 | Job filter | All roles | Intern/co-op titles only; no senior/director noise |
-| Location | Hardcoded | City-aware — wizard lets you pick Toronto, Ottawa, Vancouver, etc. |
+| Location | Hardcoded | City-aware: wizard lets you pick Toronto, Ottawa, Vancouver, etc. |
 | Location filter | Drops all remote-search results (bug) | Fixed: remote searches bypass city filter correctly |
 | LinkedIn fetch | Per-job HTTP calls during discovery (45-min timeouts) | Disabled: enrich stage handles descriptions |
 | Workday | Always runs | Opt-in via `APPLYPILOT_WORKDAY=1` |
@@ -184,4 +184,4 @@ applypilot update
 
 ## License
 
-AGPL-3.0 — same as upstream.
+AGPL-3.0, same as upstream.

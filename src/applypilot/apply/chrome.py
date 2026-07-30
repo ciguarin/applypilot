@@ -17,7 +17,7 @@ from applypilot import config
 
 logger = logging.getLogger(__name__)
 
-# CDP port base — each worker uses BASE_CDP_PORT + worker_id
+# CDP port base, each worker uses BASE_CDP_PORT + worker_id
 BASE_CDP_PORT = 9222
 
 # Track Chrome processes per worker for cleanup

@@ -677,7 +677,7 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         duration_ms = int((time.time() - start) * 1000)
 
         if "you've hit your session limit" in output.lower() or "hit your session limit" in output.lower():
-            add_event(f"[W{worker_id}] SESSION LIMIT — stopping")
+            add_event(f"[W{worker_id}] SESSION LIMIT, stopping")
             update_state(worker_id, status="session_limit", last_action="Claude session limit hit")
             return "session_limit", duration_ms
 
@@ -901,7 +901,7 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
 
             if result == "session_limit":
                 release_lock(job["url"])
-                update_state(worker_id, status="done", last_action="session limit — retry after reset")
+                update_state(worker_id, status="done", last_action="session limit, retry after reset")
                 break
             elif result == "skipped":
                 release_lock(job["url"])
@@ -1031,7 +1031,7 @@ def main(limit: int = 1, target_url: str | None = None,
             refresh_thread.start()
 
             if workers == 1:
-                # Single worker — run directly in main thread
+                # Single worker, run directly in main thread
                 total_applied, total_failed = worker_loop(
                     worker_id=0,
                     limit=effective_limit,
@@ -1042,7 +1042,7 @@ def main(limit: int = 1, target_url: str | None = None,
                     dry_run=dry_run,
                 )
             else:
-                # Multi-worker — distribute limit across workers
+                # Multi-worker, distribute limit across workers
                 if effective_limit:
                     base = effective_limit // workers
                     extra = effective_limit % workers

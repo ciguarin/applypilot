@@ -1,7 +1,7 @@
 """GitHub README-based Canadian internship discovery.
 
 Polls curated GitHub repos that maintain markdown tables of Canadian tech
-internship postings. Uses SHA-based change detection — only parses when a
+internship postings. Uses SHA-based change detection, only parses when a
 README actually changes.
 
 Replaces the n8n GitHub ingestion workflow with a pure-stdlib equivalent.
@@ -185,7 +185,7 @@ def _parse_negarprh(raw: str, preferred_cities: list[str] | None = None) -> list
         if not _title_ok(role, check_hardware=True):
             continue
 
-        jobs.append({"url": url, "title": f"{role} — {company}", "location": location})
+        jobs.append({"url": url, "title": f"{role} at {company}", "location": location})
 
     return jobs
 
@@ -194,7 +194,7 @@ def _parse_hanzili(raw: str, preferred_cities: list[str] | None = None) -> list[
     """Parse hanzili/canada_sde_intern_position table format.
 
     Columns: Title | Company | Location | Apply
-    Section headers (##) indicate category — skip hardware/firmware sections.
+    Section headers (##) indicate category. Skip hardware/firmware sections.
     """
     jobs: list[dict] = []
     headers: list[str] = []
@@ -249,7 +249,7 @@ def _parse_hanzili(raw: str, preferred_cities: list[str] | None = None) -> list[
         if not title or not company:
             continue
 
-        jobs.append({"url": url, "title": f"{title} — {company}", "location": location})
+        jobs.append({"url": url, "title": f"{title} at {company}", "location": location})
 
     return jobs
 
@@ -315,7 +315,7 @@ def run_github_readme_discovery(sources: list[dict] | None = None) -> dict:
     active_sources = sources or DEFAULT_SOURCES
     sha_cache = _load_sha_cache()
 
-    # Check all SHAs first — skip entirely if nothing changed
+    # Check all SHAs first, skip entirely if nothing changed
     new_shas: dict[str, str | None] = {}
     any_changed = False
     for source in active_sources:
@@ -328,7 +328,7 @@ def run_github_readme_discovery(sources: list[dict] | None = None) -> dict:
         log.info("[github_readme] No README changes since last run, skipping")
         return {"inserted": 0, "pruned": 0, "sources_checked": len(active_sources)}
 
-    # At least one source changed — fetch and parse all
+    # At least one source changed, fetch and parse all
     preferred_cities = _load_preferred_cities()
     log.info("[github_readme] Filtering for cities: %s", preferred_cities)
     all_jobs: list[dict] = []

@@ -1,4 +1,4 @@
-# ApplyPilot setup script — Windows
+# ApplyPilot setup script: Windows
 # Usage (run in PowerShell):
 #   Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
 #   irm https://raw.githubusercontent.com/ciguarin/applypilot/main/install.ps1 | iex
@@ -39,7 +39,7 @@ if (Get-Command npm -ErrorAction SilentlyContinue) {
     npm install -g --silent @playwright/mcp @codefuturist/email-mcp
     Write-Host "OK @playwright/mcp + @codefuturist/email-mcp"
 } else {
-    Write-Host "  npm not found — Node.js MCPs will download on first use"
+    Write-Host "  npm not found. Node.js MCPs will download on first use"
     Write-Host "  Install Node.js from https://nodejs.org to pre-cache them"
 }
 
@@ -57,11 +57,11 @@ $foundBrowser = $browserPaths | Where-Object { Test-Path $_ } | Select-Object -F
 if ($foundBrowser) {
     Write-Host "OK System browser detected: $(Split-Path $foundBrowser -Leaf)"
 } elseif (Get-Command npx -ErrorAction SilentlyContinue) {
-    Write-Host "No system browser found — downloading Playwright Chromium (~300MB)..."
+    Write-Host "No system browser found. Downloading Playwright Chromium (~300MB)..."
     npx --yes playwright install chromium
     Write-Host "OK Playwright Chromium installed"
 } else {
-    Write-Host "  No browser found and npx unavailable — install Chrome or Node.js"
+    Write-Host "  No browser found and npx unavailable. Install Chrome or Node.js"
 }
 
 # ── 5. Data directory + config templates ──────────────────────────────────────
@@ -83,7 +83,7 @@ Write-Host "OK Config templates ready"
 $uvApplyPilotExe = Join-Path $uvToolDir "applypilot\Scripts\applypilot.exe"
 
 # Paths below are baked in as literals resolved right now (not `$env:USERPROFILE`
-# lookups) — Task Scheduler spawns this script in a fresh process tree that does
+# lookups). Task Scheduler spawns this script in a fresh process tree that does
 # not reliably inherit the interactive user's environment, so any dynamic env-var
 # resolution here can silently produce a bad path with zero error output.
 @"
@@ -120,7 +120,7 @@ $taskName = "ApplyPilot.Apply"
 # machines (it tries to route through the Windows Terminal host with no interactive
 # session available to host it). powershell.exe predates that integration and
 # doesn't hit it. This script has no PS7-only syntax, so 5.1 is a safe target.
-# -WindowStyle Hidden is also omitted — it's one of the reported triggers for the
+# -WindowStyle Hidden is also omitted, it's one of the reported triggers for the
 # same hang class.
 $psExe = (Get-Command powershell -ErrorAction SilentlyContinue).Source
 if (-not $psExe) { $psExe = "powershell.exe" }
@@ -151,7 +151,7 @@ $taskResult = Register-ScheduledTask `
 if ($taskResult) {
     Write-Host "OK Apply daemon scheduled (runs at 08:00 and 20:00 daily)"
 } else {
-    Write-Host "WARN: Daemon scheduling failed — run 'applypilot doctor' to diagnose"
+    Write-Host "WARN: Daemon scheduling failed. Run 'applypilot doctor' to diagnose"
 }
 
 Write-Host ""

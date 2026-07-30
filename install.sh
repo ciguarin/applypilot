@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ApplyPilot setup script — macOS
+# ApplyPilot setup script: macOS
 # Usage: curl -fsSL https://raw.githubusercontent.com/ciguarin/applypilot/main/install.sh | bash
 set -e
 
@@ -39,7 +39,7 @@ if command -v npm &>/dev/null; then
     npm install -g --silent @playwright/mcp @codefuturist/email-mcp
     echo "✓ @playwright/mcp + @codefuturist/email-mcp"
 else
-    echo "  npm not found — Node.js MCPs will download on first use"
+    echo "  npm not found. Node.js MCPs will download on first use"
     echo "  Install Node.js from https://nodejs.org to pre-cache them"
 fi
 
@@ -65,11 +65,11 @@ _has_browser() {
 if _has_browser; then
     echo "✓ System browser detected"
 elif command -v npx &>/dev/null; then
-    echo "No system browser found — downloading Playwright Chromium (~300MB)..."
+    echo "No system browser found. Downloading Playwright Chromium (~300MB)..."
     npx --yes playwright install chromium
     echo "✓ Playwright Chromium installed"
 else
-    echo "  No browser found and npx unavailable — install Chrome or Node.js"
+    echo "  No browser found and npx unavailable. Install Chrome or Node.js"
 fi
 
 # ── 5. Data directory + config templates ──────────────────────────────────────
@@ -95,7 +95,7 @@ if [[ "$(uname)" == "Darwin" ]]; then
     if launchctl list com.applypilot.apply &>/dev/null; then
         echo "✓ Apply daemon loaded (runs at 08:00 and 20:00 daily)"
     else
-        echo "WARN: Daemon not loaded — run 'applypilot doctor' to diagnose"
+        echo "WARN: Daemon not loaded. Run 'applypilot doctor' to diagnose"
     fi
 fi
 

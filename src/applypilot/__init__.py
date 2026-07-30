@@ -1,4 +1,4 @@
-"""ApplyPilot — AI-powered end-to-end job application pipeline."""
+"""ApplyPilot: AI-powered end-to-end job application pipeline."""
 
 try:
     from importlib.metadata import version as _pkg_version

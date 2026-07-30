@@ -198,7 +198,7 @@ def _build_hard_rules(profile: dict) -> str:
     middle_rule = f' Middle name = {middle_name} (only enter if field explicitly asks; do NOT use as first name).' if middle_name else ""
     name_rule = (
         f'Name fields: First = "{first_name}", Last = "{last_name}".{middle_rule}'
-        f' Preferred/goes-by = "{preferred_name}" — use this when the form asks for preferred name.'
+        f' Preferred/goes-by = "{preferred_name}". Use this when the form asks for preferred name.'
         f' If the form only has one "Full Name" field, enter "{full_name}".'
         f' NEVER put "{middle_name or preferred_name}" in the First Name field alone.'
     )
@@ -220,7 +220,7 @@ def _build_captcha_section() -> str:
 
     return f"""== CAPTCHA ==
 You solve CAPTCHAs via the CapSolver REST API. No browser extension. You control the entire flow.
-API key: {capsolver_key or 'NOT CONFIGURED — skip to MANUAL FALLBACK for all CAPTCHAs'}
+API key: {capsolver_key or 'NOT CONFIGURED, skip to MANUAL FALLBACK for all CAPTCHAs'}
 API base: https://api.capsolver.com
 
 CRITICAL RULE: When ANY CAPTCHA appears (hCaptcha, reCAPTCHA, Turnstile -- regardless of what it looks like visually), you MUST:
@@ -436,7 +436,7 @@ def build_prompt(job: dict, tailored_resume: str,
     dest_dir.mkdir(parents=True, exist_ok=True)
     upload_pdf = dest_dir / f"{name_slug}_Resume.pdf"
     shutil.copy(str(src_pdf), str(upload_pdf))
-    # Worker-specific copy — Playwright MCP is sandboxed to the worker dir
+    # Worker-specific copy. Playwright MCP is sandboxed to the worker dir
     worker_id = job.get("_worker_id", 0)
     worker_dir = config.APPLY_WORKER_DIR / f"worker-{worker_id}"
     worker_dir.mkdir(parents=True, exist_ok=True)
@@ -487,7 +487,7 @@ def build_prompt(job: dict, tailored_resume: str,
     city = personal.get("city", "the area")
     if not cover_letter_text:
         cl_display = (
-            f"None available. Skip if optional. If required: 2 sentences — "
+            f"None available. Skip if optional. If required, write 2 sentences: "
             f"(1) relevant experience matching this role, (2) available immediately, based in {city}."
         )
     else:
@@ -519,19 +519,19 @@ def build_prompt(job: dict, tailored_resume: str,
     if dry_run:
         submit_instruction = "Do NOT click Submit. Review all fields, then output RESULT:APPLIED (dry run)."
     else:
-        submit_instruction = "Before Submit: snapshot and verify EVERY field matches profile and resume — name, email, phone, location, work auth, resume uploaded. Fix anything wrong FIRST."
+        submit_instruction = "Before Submit: snapshot and verify EVERY field matches profile and resume: name, email, phone, location, work auth, resume uploaded. Fix anything wrong FIRST."
 
     prompt = f"""You are an autonomous job application agent. Submit this application.
 
-== TOOLS AVAILABLE (do NOT call ToolSearch — all tools are pre-loaded) ==
+== TOOLS AVAILABLE (do NOT call ToolSearch, all tools are pre-loaded) ==
 - Browser: browser_navigate, browser_snapshot, browser_take_screenshot, browser_click, browser_type, browser_fill_form, browser_select_option, browser_evaluate, browser_file_upload, browser_press_key, browser_wait_for, browser_scroll, browser_tabs, browser_run_code_unsafe
 - Email (for OTP/verification only): mcp__email__list_emails, mcp__email__get_email, mcp__email__search_emails, mcp__email__move_email
   IMPORTANT: list_emails reads the inbox at {otp_email}. OTPs sent to {personal['email']} will appear here.
-  NEVER switch the application email to a different address to try to receive OTPs — it will not work.
+  NEVER switch the application email to a different address to try to receive OTPs. It will not work.
   If a tool call to any of these fails with "tool not found," do NOT fall back to any other email/Gmail tool that may
-  appear via ToolSearch — those connect to a DIFFERENT mailbox and will never see the OTP. Retry the exact
+  appear via ToolSearch. Those connect to a DIFFERENT mailbox and will never see the OTP. Retry the exact
   mcp__email__ name above.
-Use these directly. NEVER call ToolSearch. NEVER call mcp__email__list_accounts — it is not needed and wastes a turn.
+Use these directly. NEVER call ToolSearch. NEVER call mcp__email__list_accounts. It is not needed and wastes a turn.
 
 == JOB ==
 URL: {_resolve_apply_url(job)}
@@ -561,7 +561,7 @@ Cover Letter PDF: {cl_upload_path or 'N/A'}
 - Hourly/contract/rate-setting flows (full-time salaried only)
 - SSO login (Google/Microsoft OAuth) when NOT configured for this site -> RESULT:FAILED:sso_required
 - Payment info, bank details, SSN/SIN
-- Switching to a different email address mid-application to receive OTPs — NEVER do this. {otp_email} is the only readable inbox. If an OTP doesn't arrive there, wait 25s and check again, then 30s more and check a third time (~70s total, matching the patience window used for login OTPs elsewhere in this prompt — real verification emails routinely take longer than 20s) before RESULT:FAILED:email_verification_blocked.
+- Switching to a different email address mid-application to receive OTPs. NEVER do this. {otp_email} is the only readable inbox. If an OTP doesn't arrive there, wait 25s and check again, then 30s more and check a third time (~70s total, matching the patience window used for login OTPs elsewhere in this prompt, since real verification emails routinely take longer than 20s) before RESULT:FAILED:email_verification_blocked.
 
 {salary_section}
 
@@ -571,7 +571,7 @@ Cover Letter PDF: {cl_upload_path or 'N/A'}
 1. Check job URL. If it starts with "/" (relative path, no domain) -> RESULT:FAILED:bad_url immediately. Do NOT guess domains.
 2. browser_navigate to job URL.
 3. browser_snapshot. Run CAPTCHA DETECT. Solve if found.
-4. Click Apply. If email-only: send_email subject "Application for {job['title']} — {display_name}", body=2-3 sentence pitch + contact, attach "{pdf_path}". Output RESULT:APPLIED.
+4. Click Apply. If email-only: send_email subject "Application for {job['title']} from {display_name}", body=2-3 sentence pitch + contact, attach "{pdf_path}". Output RESULT:APPLIED.
    After clicking Apply: run CAPTCHA DETECT.
 6. Login wall?
    Configured login method for this site: {site_login_method.upper()}
@@ -651,18 +651,18 @@ RESULT:FAILED:not_eligible_location | RESULT:FAILED:not_eligible_work_auth | RES
 == FORM TRICKS ==
 - New tab opened? browser_tabs list/select. Always check after login/apply/sign-in clicks.
 - Workday/Lever pre-fill page: click upload area, browser_file_upload, wait for parse, click Next.
-- Dropdowns — NEVER type verbatim and press Enter. First check the snapshot for the element's role:
-  - role is "combobox" with a real `<select>` behind it (BambooHR, Greenhouse, plain HTML forms) — use browser_select_option(target=ref, values=["closest matching option text"]) directly. This is a real Playwright-level selection, not a JS value hack, so it correctly triggers React/framework state updates that browser_evaluate value-assignment silently fails to register (confirmed live: this is what was breaking Province/State selects on BambooHR and similar forms — the option would visually flash selected then revert, because `.value =` doesn't go through the framework's controlled-input path). Fuzzy-match the closest option text if the exact value isn't listed. If browser_select_option errors ("not a select element" or similar), it's a custom widget — fall through to the manual flow below.
-  - Otherwise (Workday's custom listbox widgets, and other div/li-based comboboxes with no real `<select>` underneath) — use this manual flow:
+- Dropdowns: NEVER type verbatim and press Enter. First check the snapshot for the element's role:
+  - role is "combobox" with a real `<select>` behind it (BambooHR, Greenhouse, plain HTML forms): use browser_select_option(target=ref, values=["closest matching option text"]) directly. This is a real Playwright-level selection, not a JS value hack, so it correctly triggers React/framework state updates that browser_evaluate value-assignment silently fails to register (confirmed live: this is what was breaking Province/State selects on BambooHR and similar forms. The option would visually flash selected then revert, because `.value =` doesn't go through the framework's controlled-input path). Fuzzy-match the closest option text if the exact value isn't listed. If browser_select_option errors ("not a select element" or similar), it's a custom widget. Fall through to the manual flow below.
+  - Otherwise (Workday's custom listbox widgets, and other div/li-based comboboxes with no real `<select>` underneath): use this manual flow:
     1. Click the dropdown/input to open it, then browser_wait_for ~0.5s before reading options -- these are React-driven and the option list is an async state update, not an immediate DOM change; snapshotting or clicking too fast can hit a stale/half-open list.
     2. Type 2-3 characters of the target value to filter. browser_snapshot to see filtered results.
-    3. If matching options appear: click the closest one (fuzzy OK — "Job Board"="Online Job Board", "Decline"="Prefer not to say", "Not a Veteran"="I am not a protected veteran").
+    3. If matching options appear: click the closest one (fuzzy OK: "Job Board"="Online Job Board", "Decline"="Prefer not to say", "Not a Veteran"="I am not a protected veteran").
     4. If no results after typing: clear the field (select-all + delete), then browser_snapshot to read ALL available options, then click the closest match.
     5. After clicking your selection, browser_wait_for ~0.5s BEFORE moving to the next field or clicking Next -- selecting an option is also an async state update; moving on immediately can race it and leave the field showing empty/"Select One" despite the click, causing a validation error on submit even though the click itself worked. If a required dropdown still shows unselected after this wait, re-open and re-click once before giving up on it.
   - Never leave a required dropdown empty. If nothing fits, pick the most neutral/generic option available.
 - Checkbox won't check? browser_click it directly.
 - Phone with country prefix: type digits only: {phone_digits}
-- Canadian postal codes: type WITH the space exactly as given (e.g. "M1P 4V4") for a plain text field -- confirmed live: Workday's Canadian postal code validation rejects the unspaced form ("M1P4V4" -> invalid). Only strip the space if the field is a lookup dropdown: type the full 6 chars without space (M1P4V4) to filter first — if exact match appears, click it. If no exact match, clear and type just the FSA (first 3 chars, e.g. M1P) to get nearby options, then click the closest result.
+- Canadian postal codes: type WITH the space exactly as given (e.g. "M1P 4V4") for a plain text field -- confirmed live: Workday's Canadian postal code validation rejects the unspaced form ("M1P4V4" -> invalid). Only strip the space if the field is a lookup dropdown: type the full 6 chars without space (M1P4V4) to filter first. If exact match appears, click it. If no exact match, clear and type just the FSA (first 3 chars, e.g. M1P) to get nearby options, then click the closest result.
 - "How Did You Hear About Us?" / "Source" / "How did you find this job?": open the dropdown, pick the closest option to "Online Job Board" (e.g. "Job Board", "Indeed", "LinkedIn", "Internet/Online"). Never leave it blank.
 - Date fields: {datetime.now().strftime('%m/%d/%Y')}
 - Validation errors? Take snapshot AND screenshot. Fix all, retry.
@@ -674,12 +674,12 @@ RESULT:FAILED:not_eligible_location | RESULT:FAILED:not_eligible_work_auth | RES
 - Same page after 3 attempts -> RESULT:FAILED:stuck
 
 == VALIDATION ERRORS ==
-NEVER skip a field marked red or "Fields to fix: N" and proceed to Submit — the form will always block you.
-NEVER cancel an education/experience form you've opened mid-fill — finish it completely before closing.
-NEVER delete an education entry to avoid filling it — education is always required. Add it back if deleted.
+NEVER skip a field marked red or "Fields to fix: N" and proceed to Submit. The form will always block you.
+NEVER cancel an education/experience form you've opened mid-fill. Finish it completely before closing.
+NEVER delete an education entry to avoid filling it. Education is always required. Add it back if deleted.
 NEVER submit without a completed education entry.
-If an edit dialog won't open after 2 tries: browser_snapshot to get fresh element refs, then try clicking the pencil/edit/checkmark icon by ref. If still stuck after 3 attempts total, delete the entry and re-add it from scratch — but fill the new one completely.
-For a single stubborn Month/Year select, try browser_select_option on it first — it's more reliable than JS value-assignment. For multiple date selects at once (a full education date block), batch-set via JS instead:
+If an edit dialog won't open after 2 tries: browser_snapshot to get fresh element refs, then try clicking the pencil/edit/checkmark icon by ref. If still stuck after 3 attempts total, delete the entry and re-add it from scratch, but fill the new one completely.
+For a single stubborn Month/Year select, try browser_select_option on it first. It's more reliable than JS value-assignment. For multiple date selects at once (a full education date block), batch-set via JS instead:
 browser_evaluate: () => {{
   const selects = document.querySelectorAll('select');
   selects.forEach(s => {{

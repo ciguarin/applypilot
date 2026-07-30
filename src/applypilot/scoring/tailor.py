@@ -125,7 +125,7 @@ def _build_tailor_prompt(profile: dict, job: Optional[dict] = None) -> str:
         skills_lines.append(f'"{label}": "{val}"')
     skills_json_block = ",\n        ".join(skills_lines)
 
-    # Locked experience preview — tells LLM what the resume will contain
+    # Locked experience preview: tells LLM what the resume will contain
     # so it can tailor project bullets coherently
     chick_header = "Chick-Fil-A STC | Toronto, ON | Front of House Team Member | Sep 2024 | Present"
     mitsubishi_header = "Mitsubishi Motors | Toronto, ON | Data Analyst Intern | May 2024 | Aug 2024"
@@ -146,17 +146,17 @@ Company: {company}
 Location: {location}
 Title: {job.get("title", "") if job else ""}
 
-## RESUME STRUCTURE (fixed — do not change section order)
+## RESUME STRUCTURE (fixed, do not change section order)
 The final resume will be assembled in this order:
-1. HEADER — single line (name | email | phone | location | GitHub)
-2. EDUCATION — York University, GPA 3.7
-3. EXPERIENCE — Chick-Fil-A STC + Mitsubishi Motors (locked content, shown below)
-4. SKILLS — 3 categories (you must provide these verbatim)
-5. PROJECTS — 2 projects in this order: {proj_order_str}
+1. HEADER: single line (name | email | phone | location | GitHub)
+2. EDUCATION: York University, GPA 3.7
+3. EXPERIENCE: Chick-Fil-A STC + Mitsubishi Motors (locked content, shown below)
+4. SKILLS: 3 categories (you must provide these verbatim)
+5. PROJECTS: 2 projects in this order: {proj_order_str}
 
-## EXPERIENCE SECTIONS (for context only — these are CODE-INJECTED, you do NOT generate them)
-The resume will contain these experience entries. You do NOT need to output them — they
-are automatically inserted. They are shown here so your project choices are coherent:
+## EXPERIENCE SECTIONS (for context only, these are CODE-INJECTED, you do NOT generate them)
+The resume will contain these experience entries. You do not need to output them.
+They are automatically inserted. They are shown here so your project choices are coherent:
 
 --- Chick-Fil-A STC ---
 {chr(10).join(f"  {b}" for b in chick_bullets)}
@@ -164,34 +164,35 @@ are automatically inserted. They are shown here so your project choices are cohe
 --- Mitsubishi Motors ---
 {mit_bullets_preview}
 
-## SKILLS — output these verbatim in the "skills" field:
+## SKILLS: output these verbatim in the "skills" field:
 {{
         {skills_json_block}
 }}
 
-## PROJECT 1: {project_order[0]} — Glyco
+## PROJECT 1: {project_order[0]}: Glyco
 Date: {glyco_date}
 Description to use: {glyco_desc}
 Write 2-3 bullets emphasizing the aspects most relevant to this role.
 
-## PROJECT 2: {project_order[1]} — Production Homelab & Automation
+## PROJECT 2: {project_order[1]}: Production Homelab & Automation
 Date: {homelab_date}
 Description to use: {homelab_desc}
 Write 2-3 bullets emphasizing the aspects most relevant to this role.
 
 ## HARD RULES
 - NO summary or objective section
-- NO fabricating metrics — only use the resume's real numbers
+- NO fabricating metrics. Only use the resume's real numbers
 - NO banned words: {banned_str}
-- DO NOT modify skills — output them exactly as given
-- DO NOT output experience sections — they are code-injected
-- DO NOT include education in the JSON — it is code-injected
+- NO em dashes (—) or en dashes (–). Use commas or periods instead.
+- DO NOT modify skills. Output them exactly as given
+- DO NOT output experience sections. They are code-injected
+- DO NOT include education in the JSON. It is code-injected
 - Title should match the target role title closely (e.g. "Software Engineer Intern")
 - Write short, direct bullets. Strong verb + what you built + impact.
-- Every bullet must be reworded for THIS role — different angle from base resume.
+- Every bullet must be reworded for THIS role, with a different angle from the base resume.
 - Max 4 bullets per project section.
 
-## OUTPUT — return ONLY this JSON, no markdown fences, no commentary:
+## OUTPUT: return ONLY this JSON, no markdown fences, no commentary:
 {{"title":"Role Title","skills":{{"Languages & Frameworks":"...","Tools":"...","Domain Knowledge":"..."}},"projects":[{{"name":"Glyco","bullets":["bullet 1","bullet 2","bullet 3"]}},{{"name":"Production Homelab & Automation","bullets":["bullet 1","bullet 2"]}}]}}"""
 
 
@@ -403,7 +404,7 @@ def assemble_resume_text(data: dict, profile: dict, job: Optional[dict] = None) 
 
         header = sanitize_text(pname)
         if desc:
-            header += f" — {sanitize_text(desc)}"
+            header += f": {sanitize_text(desc)}"
         if tech_stack:
             header += f"   {sanitize_text(tech_stack)}"
         lines.append(header)
@@ -538,7 +539,7 @@ def tailor_resume(
             avoid_notes.extend(validation["errors"])
             if attempt < max_retries:
                 continue
-            # Last attempt — assemble whatever we got
+            # Last attempt: assemble whatever we got
             tailored = assemble_resume_text(data, profile, job)
             report["status"] = "failed_validation"
             return tailored, report
@@ -546,7 +547,7 @@ def tailor_resume(
         # Assemble text (header injected by code, em dashes auto-fixed)
         tailored = assemble_resume_text(data, profile, job)
 
-        # Layer 2: LLM judge (catches subtle fabrication) — skipped in lenient mode
+        # Layer 2: LLM judge (catches subtle fabrication), skipped in lenient mode
         if validation_mode == "lenient":
             report["judge"] = {"verdict": "SKIPPED", "passed": True, "issues": "none"}
             report["status"] = "approved"
@@ -636,7 +637,7 @@ def run_tailoring(min_score: int = 7, limit: int = 20,
             report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
             # Generate PDF for approved resumes (best-effort)
-            # "approved_with_judge_warning" is also a success — resume was generated.
+            # "approved_with_judge_warning" is also a success. The resume was generated.
             pdf_path = None
             if report["status"] in ("approved", "approved_with_judge_warning"):
                 try:

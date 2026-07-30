@@ -12,7 +12,7 @@ from pathlib import Path
 
 from applypilot.config import DB_PATH
 
-# Thread-local connection storage — each thread gets its own connection
+# Thread-local connection storage, each thread gets its own connection
 # (required for SQLite thread safety with parallel workers)
 _local = threading.local()
 
@@ -143,7 +143,7 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
 # Complete column registry: column_name -> SQL type with optional default.
 # This is the single source of truth. Adding a column here is all that's needed
 # for it to appear in both new databases and migrated ones.
-# Bump this when the scoring prompt changes — jobs with older versions get rescored.
+# Bump this when the scoring prompt changes. Jobs with older versions get rescored.
 CURRENT_SCORE_VERSION = 1
 
 _ALL_COLUMNS: dict[str, str] = {
@@ -232,7 +232,7 @@ def prune_stale_jobs(
 
     Pruning rules:
     - Delete unscored jobs (no fit_score) older than ttl_days that haven't been
-      applied to — these are closed/expired listings not worth enriching/scoring.
+      applied to. These are closed/expired listings not worth enriching/scoring.
     - Reset fit_score/scored_at/score_version on jobs scored with an older
       score_version so they get re-scored on the next score run.
 

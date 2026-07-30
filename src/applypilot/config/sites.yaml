@@ -5,11 +5,11 @@
 
 # ── Manual-Only ATS Domains ──────────────────────────────────────────────
 # These ATS platforms have unsolvable CAPTCHAs. Jobs routing through them
-# are flagged as "manual" during apply — bot skips, user applies by hand.
+# are flagged as "manual" during apply. Bot skips, user applies by hand.
 manual_ats:
-  - "ibegin.tcsapps.com"       # TCS iBegin — unsolvable CAPTCHA every time
+  - "ibegin.tcsapps.com"       # TCS iBegin, unsolvable CAPTCHA every time
 
-# ── Blocked sites — too problematic for automation ───────────────────────
+# ── Blocked sites: too problematic for automation ───────────────────────
 blocked:
   sites:
     - "glassdoor"
@@ -26,7 +26,7 @@ blocked:
     - "%workopolis.com/out%"
     - "%linkedin.com%"
 
-# ── Blocked SSO domains — cannot authenticate through these ──────────────
+# ── Blocked SSO domains: cannot authenticate through these ──────────────
 blocked_sso:
   - "accounts.google.com"
   - "login.microsoftonline.com"

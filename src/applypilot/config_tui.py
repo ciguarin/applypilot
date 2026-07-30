@@ -1,4 +1,4 @@
-"""Interactive settings TUI — launched by `applypilot config` with no subcommand."""
+"""Interactive settings TUI, launched by `applypilot config` with no subcommand."""
 from __future__ import annotations
 
 import json

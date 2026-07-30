@@ -1,4 +1,4 @@
-"""ApplyPilot CLI — the main entry point."""
+"""ApplyPilot CLI: the main entry point."""
 
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ def main(
         is_eager=True,
     ),
 ) -> None:
-    """ApplyPilot — AI-powered end-to-end job application pipeline."""
+    """ApplyPilot: AI-powered end-to-end job application pipeline."""
 
 
 @app.command()
@@ -200,7 +200,7 @@ def apply(
         swept = sweep_verification_emails()
         console.print(f"[green]Archived {len(swept)} verification email(s).[/green]")
         for m in swept:
-            console.print(f"  [dim]{m['subject'][:60]} — {m['from'][:40]}[/dim]")
+            console.print(f"  [dim]{m['subject'][:60]} | {m['from'][:40]}[/dim]")
         return
 
     # --- Full apply mode ---
@@ -376,7 +376,7 @@ def status(
         ORDER BY fit_score DESC, title
     """).fetchall()
     if manual_rows:
-        manual_table = Table(title=f"\nManual Apply Queue ({len(manual_rows)} jobs — resume tailored, apply yourself)",
+        manual_table = Table(title=f"\nManual Apply Queue ({len(manual_rows)} jobs, resume tailored, apply yourself)",
                              show_header=True, header_style="bold red")
         manual_table.add_column("Score", width=5, justify="center")
         manual_table.add_column("Job")
@@ -437,7 +437,7 @@ def doctor() -> None:
     if RESUME_PATH.exists():
         results.append(("resume.txt", ok_mark, str(RESUME_PATH)))
     elif RESUME_PDF_PATH.exists():
-        results.append(("resume.txt", warn_mark, "Only PDF found — plain-text needed for AI stages"))
+        results.append(("resume.txt", warn_mark, "Only PDF found. Plain-text needed for AI stages"))
     else:
         results.append(("resume.txt", fail_mark, "Run 'applypilot init' to add your resume"))
 
@@ -445,14 +445,14 @@ def doctor() -> None:
     if SEARCH_CONFIG_PATH.exists():
         results.append(("searches.yaml", ok_mark, str(SEARCH_CONFIG_PATH)))
     else:
-        results.append(("searches.yaml", warn_mark, "Will use example config — run 'applypilot init'"))
+        results.append(("searches.yaml", warn_mark, "Will use example config. Run 'applypilot init'"))
 
     # jobspy (discovery dep installed separately)
     try:
         import jobspy  # noqa: F401
         results.append(("python-jobspy", ok_mark, "Job board scraping available"))
     except ImportError as e:
-        results.append(("python-jobspy", warn_mark, f"not importable: {e} — run: applypilot repair"))
+        results.append(("python-jobspy", warn_mark, f"not importable: {e}. Run: applypilot repair"))
 
     # --- Tier 2 checks ---
     import os
@@ -510,9 +510,9 @@ def doctor() -> None:
     if not dstat["registered"]:
         results.append(("Daemon", fail_mark, dstat["detail"]))
     elif not dstat["enabled"]:
-        results.append(("Daemon", warn_mark, f"{dstat['detail']} — run: applypilot daemon enable"))
+        results.append(("Daemon", warn_mark, f"{dstat['detail']}. Run: applypilot daemon enable"))
     else:
-        results.append(("Daemon", ok_mark, f"{dstat['detail']} — next: {dstat['next_run']} / last: {dstat['last_run']}"))
+        results.append(("Daemon", ok_mark, f"{dstat['detail']}. Next: {dstat['next_run']} / last: {dstat['last_run']}"))
 
     # --- Render results ---
     console.print()
@@ -528,7 +528,7 @@ def doctor() -> None:
     # Tier summary
     from applypilot.config import get_tier, TIER_LABELS
     tier = get_tier()
-    console.print(f"[bold]Current tier: Tier {tier} — {TIER_LABELS[tier]}[/bold]")
+    console.print(f"[bold]Current tier: Tier {tier} ({TIER_LABELS[tier]})[/bold]")
 
     if tier == 1:
         console.print("[dim]  → Tier 2 unlocks: scoring, tailoring, cover letters (needs LLM API key)[/dim]")
@@ -561,7 +561,7 @@ def update() -> None:
         dist = _m.distribution("applypilot")
         direct_url = dist.read_text("direct_url.json")
         if direct_url and '"editable":true' in direct_url.replace(" ", ""):
-            console.print("[yellow]Dev install detected — you're running an editable install.[/yellow]")
+            console.print("[yellow]Dev install detected. You're running an editable install.[/yellow]")
             console.print("[dim]Your changes are already live. Push to git to publish; don't run update.[/dim]")
             raise typer.Exit(0)
     except _m.PackageNotFoundError:
@@ -569,7 +569,7 @@ def update() -> None:
     console.print("[bold]Updating ApplyPilot...[/bold]")
 
     if sys.platform == "win32":
-        # Over SSH (no TTY) we can update inline — the exe lock only applies to
+        # Over SSH (no TTY) we can update inline. The exe lock only applies to
         # interactive terminals where the user's shell holds the file open.
         # In a TTY session, spawn a detached console so the lock clears when the
         # current terminal exits.
@@ -586,13 +586,13 @@ def update() -> None:
                 "uv tool install git+https://github.com/ciguarin/applypilot@main --force --refresh; "
                 "Write-Host 'Running post-install repair...'; "
                 "applypilot repair; "
-                "Write-Host ''; Write-Host 'Done — close this window.'; "
+                "Write-Host ''; Write-Host 'Done, close this window.'; "
                 "Read-Host"
             )
             ps = "pwsh.exe" if subprocess.run(["where", "pwsh"], capture_output=True).returncode == 0 else "powershell.exe"
             subprocess.Popen([ps, "-NoProfile", "-Command", script], creationflags=0x00000010)  # CREATE_NEW_CONSOLE
             console.print("[green]Updater launched in a new window.[/green]")
-            console.print("[dim]Close this terminal — the updater will complete once the lock clears.[/dim]")
+            console.print("[dim]Close this terminal. The updater will complete once the lock clears.[/dim]")
             raise typer.Exit(0)
         # Non-TTY (SSH): update inline, exe lock is not held by this session
 
@@ -654,7 +654,7 @@ def daemon_disable_cmd() -> None:
     if disable_daemon():
         console.print("[green]Daemon disabled.[/green] Run 'applypilot daemon enable' to resume.")
     else:
-        console.print("[red]Failed to disable daemon.[/red] It may not be registered — check: applypilot daemon status")
+        console.print("[red]Failed to disable daemon.[/red] It may not be registered. Check: applypilot daemon status")
         raise typer.Exit(1)
 
 
@@ -679,7 +679,7 @@ app.add_typer(config_app, name="config")
 
 @config_app.callback()
 def config_main(ctx: typer.Context) -> None:
-    """Interactive settings — or run a subcommand directly."""
+    """Interactive settings, or run a subcommand directly."""
     if ctx.invoked_subcommand is None:
         from applypilot.config import load_env, ensure_dirs
         from applypilot.config_tui import run_settings_tui
@@ -710,7 +710,7 @@ def config_show() -> None:
         cities = profile.get("preferred_cities", ["toronto", "remote"])
         console.print(f"  [cyan]cities[/cyan]        {', '.join(cities)}")
     except (FileNotFoundError, json.JSONDecodeError):
-        console.print("  [red]profile.json not found — run applypilot init[/red]")
+        console.print("  [red]profile.json not found. Run applypilot init[/red]")
 
     console.print()
 
@@ -725,7 +725,7 @@ def config_show() -> None:
         console.print(f"  [cyan]hours_old[/cyan]     {defaults.get('hours_old', 168)}")
         console.print(f"  [cyan]results/site[/cyan]  {defaults.get('results_per_site', 50)}")
     except (FileNotFoundError, Exception):
-        console.print("  [red]searches.yaml not found — run applypilot init[/red]")
+        console.print("  [red]searches.yaml not found. Run applypilot init[/red]")
 
     console.print()
 

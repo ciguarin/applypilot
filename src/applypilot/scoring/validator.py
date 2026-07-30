@@ -104,7 +104,7 @@ def validate_json_fields(data: dict, profile: dict, mode: str = "normal") -> dic
                  and education are code-injected from profile.json, not LLM-generated,
                  so they are not validated here.
         profile: User profile dict from load_profile().
-        mode:    Validation strictness — "strict", "normal", or "lenient".
+        mode:    Validation strictness: "strict", "normal", or "lenient".
                  strict  → banned words are errors (trigger retries)
                  normal  → banned words are warnings (no retry)
                  lenient → banned words ignored entirely
@@ -115,7 +115,7 @@ def validate_json_fields(data: dict, profile: dict, mode: str = "normal") -> dic
     errors: list[str] = []
     warnings: list[str] = []
 
-    # Required keys — always checked regardless of mode
+    # Required keys: always checked regardless of mode
     for key in ("title", "skills", "projects"):
         if key not in data or not data[key]:
             errors.append(f"Missing required field: {key}")
@@ -150,7 +150,7 @@ def validate_json_fields(data: dict, profile: dict, mode: str = "normal") -> dic
     if found_leaks:
         errors.append(f"LLM self-talk: '{found_leaks[0]}'")
 
-    # Banned filler words — severity depends on mode
+    # Banned filler words: severity depends on mode
     if mode != "lenient":
         found_banned = [w for w in BANNED_WORDS if re.search(r"\b" + re.escape(w) + r"\b", all_text)]
         if found_banned:
@@ -282,7 +282,7 @@ def validate_cover_letter(text: str, mode: str = "normal") -> dict:
 
     Args:
         text: The cover letter text to validate.
-        mode: Validation strictness — "strict", "normal", or "lenient".
+        mode: Validation strictness: "strict", "normal", or "lenient".
               strict  → banned words are errors (trigger retries); word limit enforced
               normal  → banned words are warnings; word limit is soft (+25 words)
               lenient → banned words ignored; word count not checked
@@ -294,11 +294,11 @@ def validate_cover_letter(text: str, mode: str = "normal") -> dict:
     warnings: list[str] = []
     text_lower = text.lower()
 
-    # 1. Em dashes — always an error (sanitize_text should have caught these)
+    # 1. Em dashes: always an error (sanitize_text should have caught these)
     if "\u2014" in text or "\u2013" in text:
         errors.append("Contains em dash or en dash.")
 
-    # 2. Banned words — severity depends on mode
+    # 2. Banned words: severity depends on mode
     if mode != "lenient":
         found = [w for w in BANNED_WORDS if re.search(r"\b" + re.escape(w) + r"\b", text_lower)]
         if found:
@@ -316,12 +316,12 @@ def validate_cover_letter(text: str, mode: str = "normal") -> dict:
         warnings.append(f"Long ({words} words). Target 250.")
     # lenient: no word count check
 
-    # 4. LLM self-talk — always an error regardless of mode
+    # 4. LLM self-talk: always an error regardless of mode
     found_leaks = [p for p in LLM_LEAK_PHRASES if p in text_lower]
     if found_leaks:
         errors.append(f"LLM self-talk: '{found_leaks[0]}'")
 
-    # 5. Must start with "Dear" — always checked (preamble should have been stripped)
+    # 5. Must start with "Dear": always checked (preamble should have been stripped)
     stripped = text.strip()
     if not stripped.lower().startswith("dear"):
         errors.append("Must start with 'Dear Hiring Manager,'")

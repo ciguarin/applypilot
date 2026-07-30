@@ -59,7 +59,7 @@ _UPSTREAM: dict[str, str | None] = {
 # ---------------------------------------------------------------------------
 
 def _run_discover(workers: int = 1) -> dict:
-    """Stage: Job discovery — GitHub README, JobSpy, Workday, and smart-extract scrapers."""
+    """Stage: Job discovery: GitHub README, JobSpy, Workday, and smart-extract scrapers."""
     stats: dict = {"github_readme": None, "jobspy": None, "workday": None, "smartextract": None}
 
     # Prune stale entries before discovering new ones
@@ -69,7 +69,7 @@ def _run_discover(workers: int = 1) -> dict:
     if pruned["rescored_flagged"] > 0:
         console.print(f"  [dim]Flagged {pruned['rescored_flagged']} jobs for rescoring (prompt version changed)[/dim]")
 
-    # GitHub README — curated Canadian internship lists (highest signal, run first)
+    # GitHub README: curated Canadian internship lists (highest signal, run first)
     console.print("  [cyan]GitHub README discovery...[/cyan]")
     try:
         from applypilot.discovery.github_readme import run_github_readme_discovery
@@ -81,7 +81,7 @@ def _run_discover(workers: int = 1) -> dict:
         console.print(f"  [red]GitHub README error:[/red] {e}")
         stats["github_readme"] = f"error: {e}"
 
-    # JobSpy — LinkedIn, Indeed, Glassdoor, ZipRecruiter
+    # JobSpy: LinkedIn, Indeed, Glassdoor, ZipRecruiter
     # Disabled when searches.yaml `sites` is empty: low yield (~0.4% hit auto-apply
     # threshold) relative to the GitHub README sources, and LinkedIn login carries
     # real account-lockout risk during the `apply` stage. Set `sites:` in
@@ -98,14 +98,14 @@ def _run_discover(workers: int = 1) -> dict:
             run_jobspy()
             stats["jobspy"] = "ok"
         except ImportError as e:
-            console.print(f"  [yellow]JobSpy not available — skipping ({e})[/yellow]")
+            console.print(f"  [yellow]JobSpy not available, skipping ({e})[/yellow]")
             stats["jobspy"] = f"skipped: {e}"
         except Exception as e:
             log.error("JobSpy discovery failed: %s", e)
             console.print(f"  [red]JobSpy error:[/red] {e}")
             stats["jobspy"] = f"error: {e}"
 
-    # Workday — disabled by default (20 min runtime, 0 unique high-fit jobs vs LinkedIn)
+    # Workday: disabled by default (20 min runtime, 0 unique high-fit jobs vs LinkedIn)
     # Enable via APPLYPILOT_WORKDAY=1 in .env
     import os as _os
     if _os.environ.get("APPLYPILOT_WORKDAY") == "1":
@@ -122,7 +122,7 @@ def _run_discover(workers: int = 1) -> dict:
         console.print("  [dim]Workday skipped (set APPLYPILOT_WORKDAY=1 in .env to enable)[/dim]")
         stats["workday"] = "skipped"
 
-    # Smart extract — disabled by default (low yield, high cost)
+    # Smart extract: disabled by default (low yield, high cost)
     # Enable via APPLYPILOT_SMARTEXTRACT=1 in .env
     if _os.environ.get("APPLYPILOT_SMARTEXTRACT") == "1":
         console.print("  [cyan]Smart extract (AI-powered scraping)...[/cyan]")
@@ -142,7 +142,7 @@ def _run_discover(workers: int = 1) -> dict:
 
 
 def _run_enrich(workers: int = 1) -> dict:
-    """Stage: Detail enrichment — scrape full descriptions and apply URLs."""
+    """Stage: Detail enrichment: scrape full descriptions and apply URLs."""
     try:
         from applypilot.enrichment.detail import run_enrichment
         run_enrichment(workers=workers)
@@ -153,7 +153,7 @@ def _run_enrich(workers: int = 1) -> dict:
 
 
 def _run_score() -> dict:
-    """Stage: LLM scoring — assign fit scores 1-10."""
+    """Stage: LLM scoring: assign fit scores 1-10."""
     try:
         from applypilot.scoring.scorer import run_scoring
         run_scoring()
@@ -164,7 +164,7 @@ def _run_score() -> dict:
 
 
 def _run_tailor(min_score: int = 7, validation_mode: str = "normal") -> dict:
-    """Stage: Resume tailoring — generate tailored resumes for high-fit jobs."""
+    """Stage: Resume tailoring: generate tailored resumes for high-fit jobs."""
     try:
         from applypilot.scoring.tailor import run_tailoring
         run_tailoring(min_score=min_score, validation_mode=validation_mode)
@@ -186,7 +186,7 @@ def _run_cover(min_score: int = 7, validation_mode: str = "normal") -> dict:
 
 
 def _run_pdf() -> dict:
-    """Stage: PDF conversion — convert tailored resumes and cover letters to PDF."""
+    """Stage: PDF conversion: convert tailored resumes and cover letters to PDF."""
     try:
         from applypilot.scoring.pdf import batch_convert
         batch_convert()
@@ -352,7 +352,7 @@ def _run_stage_streaming(
             # No work right now
             upstream_done = upstream is None or tracker.is_done(upstream)
             if upstream_done:
-                # No work and upstream is done — this stage is finished
+                # No work and upstream is done. This stage is finished
                 break
             # Upstream still running, wait and retry
             if stop_event.wait(timeout=_STREAM_POLL_INTERVAL):
@@ -375,7 +375,7 @@ def _run_sequential(ordered: list[str], min_score: int, workers: int = 1,
     for name in ordered:
         meta = STAGE_META[name]
         console.print(f"\n{'=' * 70}")
-        console.print(f"  [bold]STAGE: {name}[/bold] — {meta['desc']}")
+        console.print(f"  [bold]STAGE: {name}[/bold]: {meta['desc']}")
         console.print(f"  Started: {datetime.now().strftime('%H:%M:%S')}")
         console.print(f"{'=' * 70}")
 
@@ -413,7 +413,7 @@ def _run_sequential(ordered: list[str], min_score: int, workers: int = 1,
         if status not in ("ok", "partial"):
             errors[name] = status
 
-        console.print(f"\n  Stage '{name}' completed in {elapsed:.1f}s — {status}")
+        console.print(f"\n  Stage '{name}' completed in {elapsed:.1f}s: {status}")
 
     total_elapsed = time.time() - pipeline_start
     return {"stages": results, "errors": errors, "elapsed": total_elapsed}
@@ -426,7 +426,7 @@ def _run_streaming(ordered: list[str], min_score: int, workers: int = 1,
     stop_event = threading.Event()
     pipeline_start = time.time()
 
-    console.print(f"\n  [bold cyan]STREAMING MODE[/bold cyan] — stages run concurrently")
+    console.print(f"\n  [bold cyan]STREAMING MODE[/bold cyan]: stages run concurrently")
     console.print(f"  Poll interval: {_STREAM_POLL_INTERVAL}s\n")
 
     # Mark stages NOT in `ordered` as done so downstream doesn't wait for them
@@ -459,7 +459,7 @@ def _run_streaming(ordered: list[str], min_score: int, workers: int = 1,
                 f"  [green]Completed:[/green] {name} ({elapsed:.1f}s)"
             )
     except KeyboardInterrupt:
-        console.print("\n[yellow]Interrupted — stopping stages...[/yellow]")
+        console.print("\n[yellow]Interrupted, stopping stages...[/yellow]")
         stop_event.set()
         for t in threads.values():
             t.join(timeout=10)
@@ -530,7 +530,7 @@ def run_pipeline(
     console.print(f"  DB:        {pre_stats['total']} jobs, {pre_stats['pending_detail']} pending enrichment")
 
     if dry_run:
-        console.print(f"\n  [yellow]DRY RUN[/yellow] — would execute ({mode}):")
+        console.print(f"\n  [yellow]DRY RUN[/yellow]: would execute ({mode}):")
         for name in ordered:
             meta = STAGE_META[name]
             console.print(f"    {name:<12s}  {meta['desc']}")
