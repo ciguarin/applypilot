@@ -1,8 +1,16 @@
 # ApplyPilot
 
+[![Latest release](https://img.shields.io/github/v/release/ciguarin/applypilot)](https://github.com/ciguarin/applypilot/releases)
+[![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
+
 Automated job application pipeline for Canadian CS internships. Discovers listings from curated GitHub repos and job boards, scores them against your profile, tailors your resume, writes cover letters, and submits applications autonomously.
 
 Fork of [Pickle-Pixel/ApplyPilot](https://github.com/Pickle-Pixel/ApplyPilot) — rebuilt for Canadian students: intern-first discovery, Canadian job board targeting, city-aware filtering, and a setup wizard that actually works.
+
+## Development methodology
+
+Built iteratively with [Claude Code](https://claude.ai/code) as a development accelerator, not a replacement for engineering judgment — every entry in [CHANGELOG.md](CHANGELOG.md) documents a root-cause diagnosis (not just a symptom fix) and cites how it was verified live against a real job application before being considered done. Roughly three-quarters of commits carry AI co-authorship attribution; the rest are hand-written. Both are normal parts of how this project gets built — see `git log` for the exact split.
 
 ---
 
