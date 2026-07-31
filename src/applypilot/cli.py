@@ -1111,5 +1111,97 @@ def config_blocked(
     console.print()
 
 
+@config_app.command("sources")
+def config_sources(
+    add: Optional[str] = typer.Option(None, "--add", help="Add a source by 'owner/repo'. Uses the generic parser."),
+    name: Optional[str] = typer.Option(None, "--name", help="Display name for --add (defaults to the repo path)."),
+    path: str = typer.Option("README.md", "--path", help="File to poll within the repo, for --add."),
+    branch: str = typer.Option("main", "--branch", help="Branch to poll, for --add."),
+    remove: Optional[str] = typer.Option(None, "--remove", help="Remove a previously user-added source by its key."),
+    enable: Optional[str] = typer.Option(None, "--enable", help="Enable a source (built-in or user-added) by key."),
+    disable: Optional[str] = typer.Option(None, "--disable", help="Disable a source (built-in or user-added) by key."),
+) -> None:
+    """View or edit GitHub README discovery sources.
+
+    The two built-in sources (negarprh, hanzili) use bespoke parsers tailored
+    to each README's exact format. Sources you add yourself go through a
+    generic parser that auto-detects columns from the header row -- works for
+    most curated internship-list READMEs (a markdown table with company/
+    title/location/apply columns in some order), but won't handle a genuinely
+    unusual format the way a bespoke parser would.
+    """
+    import re as _re
+
+    from applypilot.config import load_user_github_sources, save_user_github_sources
+    from applypilot.discovery.github_readme import DEFAULT_SOURCES, source_urls_from_repo, _fetch
+
+    user_cfg = load_user_github_sources()
+    builtin_disabled = list(user_cfg["builtin_disabled"])
+    user_sources = list(user_cfg["user_sources"])
+    builtin_keys = {s["key"] for s in DEFAULT_SOURCES}
+    user_keys = {s["key"] for s in user_sources}
+    changed = False
+
+    if add:
+        key = _re.sub(r"[^a-z0-9]+", "-", add.lower()).strip("-")
+        if key in builtin_keys or key in user_keys:
+            console.print(f"[yellow]Already have a source with key '{key}'.[/yellow]")
+        else:
+            readme_url, _ = source_urls_from_repo(add, path, branch)
+            if _fetch(readme_url) is None:
+                console.print(f"[yellow]Warning: couldn't fetch {readme_url} -- adding anyway, check the repo/path/branch.[/yellow]")
+            user_sources.append({
+                "key": key, "name": name or add, "repo": add,
+                "path": path, "branch": branch, "enabled": True,
+            })
+            changed = True
+            console.print(f"[green]Added source '{key}' ({add}), generic parser.[/green]")
+
+    if remove:
+        if remove in user_keys:
+            user_sources = [s for s in user_sources if s["key"] != remove]
+            changed = True
+            console.print(f"[green]Removed source: {remove}[/green]")
+        elif remove in builtin_keys:
+            console.print(f"[yellow]'{remove}' is a built-in source -- use --disable instead of --remove.[/yellow]")
+        else:
+            console.print(f"[yellow]No source with key: {remove}[/yellow]")
+
+    for toggle_key, want_enabled in ((enable, True), (disable, False)):
+        if not toggle_key:
+            continue
+        if toggle_key in builtin_keys:
+            if want_enabled:
+                builtin_disabled = [k for k in builtin_disabled if k != toggle_key]
+            elif toggle_key not in builtin_disabled:
+                builtin_disabled.append(toggle_key)
+            changed = True
+            console.print(f"[green]{'Enabled' if want_enabled else 'Disabled'}: {toggle_key}[/green]")
+        elif toggle_key in user_keys:
+            for s in user_sources:
+                if s["key"] == toggle_key:
+                    s["enabled"] = want_enabled
+            changed = True
+            console.print(f"[green]{'Enabled' if want_enabled else 'Disabled'}: {toggle_key}[/green]")
+        else:
+            console.print(f"[yellow]No source with key: {toggle_key}[/yellow]")
+
+    if changed:
+        save_user_github_sources(builtin_disabled, user_sources)
+
+    console.print("\n[bold]Built-in[/bold] [dim](tailored parsers)[/dim]")
+    for s in DEFAULT_SOURCES:
+        state = "[dim]disabled[/dim]" if s["key"] in builtin_disabled else "[green]enabled[/green]"
+        console.print(f"  {state:20} {s['key']:20} {s['name']}")
+
+    console.print("\n[bold]Your additions[/bold] [dim](~/.applypilot/github_sources.yaml, generic parser)[/dim]")
+    if not user_sources:
+        console.print("  [dim]none[/dim]")
+    for s in user_sources:
+        state = "[green]enabled[/green]" if s.get("enabled", True) else "[dim]disabled[/dim]"
+        console.print(f"  {state:20} {s['key']:20} {s['name']} [dim]({s['repo']})[/dim]")
+    console.print()
+
+
 if __name__ == "__main__":
     app()

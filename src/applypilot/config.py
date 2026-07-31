@@ -190,6 +190,43 @@ def save_user_blocked_sites(sites: list[str], url_patterns: list[str]) -> None:
     )
 
 
+USER_GITHUB_SOURCES_PATH = APP_DIR / "github_sources.yaml"
+
+
+def load_user_github_sources() -> dict:
+    """Load user-added GitHub README discovery sources and built-in toggle state.
+
+    Kept in APP_DIR, separate from the package, for the same reason as
+    blocked_sites.yaml: survives `applypilot update` and reinstalls.
+
+    Returns:
+        {"builtin_disabled": [key, ...], "user_sources": [source_dict, ...]}
+        Each user_sources entry: key, name, repo (owner/repo), path, branch,
+        enabled, and optional carry_marker / strip_html_comments overrides.
+    """
+    import yaml
+    if not USER_GITHUB_SOURCES_PATH.exists():
+        return {"builtin_disabled": [], "user_sources": []}
+    data = yaml.safe_load(USER_GITHUB_SOURCES_PATH.read_text(encoding="utf-8")) or {}
+    return {
+        "builtin_disabled": data.get("builtin_disabled") or [],
+        "user_sources": data.get("user_sources") or [],
+    }
+
+
+def save_user_github_sources(builtin_disabled: list[str], user_sources: list[dict]) -> None:
+    """Write user-added GitHub README sources and built-in toggle state to APP_DIR."""
+    import yaml
+    APP_DIR.mkdir(parents=True, exist_ok=True)
+    USER_GITHUB_SOURCES_PATH.write_text(
+        yaml.safe_dump(
+            {"builtin_disabled": builtin_disabled, "user_sources": user_sources},
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+
 def load_blocked_sites() -> tuple[set[str], list[str]]:
     """Load blocked sites and URL patterns: package defaults + user additions.
 

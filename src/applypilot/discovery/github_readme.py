@@ -7,9 +7,13 @@ README actually changes.
 Replaces the n8n GitHub ingestion workflow with a pure-stdlib equivalent.
 No extra dependencies beyond what applypilot already requires.
 
-Default sources (extend via searches.yaml `github_readme_sources`):
+Default sources (bespoke parsers, tailored to each README's exact format):
   - negarprh/Canadian-Tech-Internships-2026
   - hanzili/canada_sde_intern_position
+
+Users can add their own sources via `applypilot config sources --add owner/repo`.
+Those go through a generic, header-auto-detecting parser instead of a
+bespoke one -- see get_active_sources() and _parse_generic().
 """
 
 from __future__ import annotations
@@ -46,6 +50,49 @@ DEFAULT_SOURCES = [
         "parser": "hanzili",
     },
 ]
+
+def source_urls_from_repo(repo: str, path: str = "README.md", branch: str = "main") -> tuple[str, str]:
+    """Derive (readme_url, sha_url) from an "owner/repo" shorthand.
+
+    Matches the same raw.githubusercontent.com + api.github.com/commits
+    convention DEFAULT_SOURCES already uses, so adding a source only
+    requires "owner/repo", not two hand-built URLs.
+    """
+    readme_url = f"https://raw.githubusercontent.com/{repo}/refs/heads/{branch}/{path}"
+    sha_url = f"https://api.github.com/repos/{repo}/commits?path={path}&per_page=1"
+    return readme_url, sha_url
+
+
+def get_active_sources() -> list[dict]:
+    """Merge built-in sources (minus any the user disabled) with enabled
+    user-added sources, deriving URLs for the latter from their repo shorthand.
+    """
+    from applypilot.config import load_user_github_sources
+
+    user_cfg = load_user_github_sources()
+    disabled = set(user_cfg["builtin_disabled"])
+
+    active = [s for s in DEFAULT_SOURCES if s["key"] not in disabled]
+
+    for src in user_cfg["user_sources"]:
+        if not src.get("enabled", True):
+            continue
+        readme_url, sha_url = source_urls_from_repo(
+            src["repo"], src.get("path", "README.md"), src.get("branch", "main")
+        )
+        active.append({
+            "key": src["key"],
+            "name": src.get("name", src["repo"]),
+            "readme_url": readme_url,
+            "sha_url": sha_url,
+            "parser": "generic",
+            "carry_marker": src.get("carry_marker"),
+            "strip_html_comments": src.get("strip_html_comments", True),
+            "skip_categories": src.get("skip_categories", list(_SKIP_CATEGORIES)),
+        })
+
+    return active
+
 
 _EXCLUDED_TITLES = {
     "senior", "staff", "lead", "principal", "director",
@@ -128,15 +175,19 @@ def _title_ok(title: str, check_hardware: bool = True) -> bool:
 
 
 def _extract_last_url(cell: str) -> str | None:
-    matches = re.findall(r'\(https?://[^)]+\)', cell)
-    return matches[-1][1:-1] if matches else None
+    """Last URL in a markdown link cell. Handles both `(url)` and the
+    angle-bracket-wrapped `(<url>)` convention some READMEs use (hanzili's,
+    for one) to stop certain renderers from mangling special characters.
+    """
+    matches = re.findall(r'\(<?(https?://[^)>]+)>?\)', cell)
+    return matches[-1] if matches else None
 
 
 # ---------------------------------------------------------------------------
 # Parsers (one per README schema)
 # ---------------------------------------------------------------------------
 
-def _parse_negarprh(raw: str, preferred_cities: list[str] | None = None) -> list[dict]:
+def _parse_negarprh(raw: str, preferred_cities: list[str] | None = None, source: dict | None = None) -> list[dict]:
     """Parse negarprh/Canadian-Tech-Internships table format.
 
     Columns: Company | Role | Location | Apply
@@ -190,7 +241,7 @@ def _parse_negarprh(raw: str, preferred_cities: list[str] | None = None) -> list
     return jobs
 
 
-def _parse_hanzili(raw: str, preferred_cities: list[str] | None = None) -> list[dict]:
+def _parse_hanzili(raw: str, preferred_cities: list[str] | None = None, source: dict | None = None) -> list[dict]:
     """Parse hanzili/canada_sde_intern_position table format.
 
     Columns: Title | Company | Location | Apply
@@ -254,9 +305,119 @@ def _parse_hanzili(raw: str, preferred_cities: list[str] | None = None) -> list[
     return jobs
 
 
+def _parse_generic(raw: str, preferred_cities: list[str] | None = None, source: dict | None = None) -> list[dict]:
+    """Parse a user-added source with no bespoke parser: auto-detect columns
+    from the header row's own text instead of requiring a fixed column order.
+
+    Recognizes common header synonyms (company/employer, title/role/position,
+    location/city, apply/link/application) rather than hardcoding one exact
+    schema, since most curated internship-list READMEs are a markdown table
+    with these four columns in some order, plus incidental noise (HTML
+    comments, a "same as row above" marker, category section headers).
+
+    Optional per-source overrides (all in `source`, all optional):
+        carry_marker:          cell value meaning "same as the row above"
+        strip_html_comments:   bool, default True
+        skip_categories:       list of ## section-header substrings to skip
+    """
+    source = source or {}
+    carry_marker = source.get("carry_marker")
+    strip_html_comments = source.get("strip_html_comments", True)
+    skip_categories = [s.lower() for s in source.get("skip_categories", _SKIP_CATEGORIES)]
+
+    jobs: list[dict] = []
+    headers: list[str] = []
+    in_table = False
+    skip_category = False
+    last_company = ""
+
+    for raw_line in raw.splitlines():
+        line = raw_line.strip()
+        if line.startswith("## "):
+            cat = line[3:].lower()
+            skip_category = any(sc in cat for sc in skip_categories)
+            in_table = False
+            continue
+        if skip_category:
+            continue
+        if not line.startswith("|"):
+            in_table = False
+            continue
+        cells = [c.strip() for c in line.split("|")[1:-1]]
+        if not cells:
+            continue
+
+        detected = _detect_generic_headers(cells)
+        if detected is not None:
+            headers = detected
+            in_table = True
+            continue
+        if all(re.match(r"^[-:\s]+$", c) for c in cells):
+            continue
+        if not in_table or "company" not in headers or "apply" not in headers:
+            continue
+
+        row = {headers[i]: cells[i] for i in range(min(len(headers), len(cells))) if headers[i]}
+        company = row.get("company", "")
+        if carry_marker and company == carry_marker:
+            company = last_company
+        elif company:
+            last_company = company
+
+        title = row.get("title", "")
+        if strip_html_comments:
+            title = re.sub(r"<!--[^>]+-->", "", title)
+        title = title.strip()
+
+        location = row.get("location", "")
+        apply_cell = row.get("apply", "")
+
+        if "🔒" in apply_cell or "closed" in apply_cell.lower():
+            continue
+        url = _extract_last_url(apply_cell)
+        if not url or "linkedin.com" in url:
+            continue
+        if not title or not company:
+            continue
+        if not _location_ok(location, preferred_cities):
+            continue
+        if not _title_ok(title, check_hardware=True):
+            continue
+
+        jobs.append({"url": url, "title": f"{title} at {company}", "location": location})
+
+    return jobs
+
+
+_HEADER_SYNONYMS = {
+    "company": {"company", "employer", "org", "organization"},
+    "title": {"title", "role", "position", "job"},
+    "location": {"location", "city", "region"},
+    "apply": {"apply", "link", "application", "url"},
+}
+
+
+def _detect_generic_headers(cells: list[str]) -> list[str] | None:
+    """Map a table row to canonical field names if it looks like a header row.
+
+    Requires a confident match on at least "company" and "apply" (the two
+    fields every format needs) before treating a row as the header -- avoids
+    misdetecting an unrelated table elsewhere in the same README.
+    """
+    mapped = []
+    for c in cells:
+        key = re.sub(r"[^a-z]", "", c.lower())
+        field = next((f for f, syns in _HEADER_SYNONYMS.items() if key in syns), None)
+        mapped.append(field or "")
+    if "company" in mapped and "apply" in mapped:
+        return mapped
+    return None
+
+
 _PARSERS = {
     "negarprh": _parse_negarprh,
     "hanzili": _parse_hanzili,
+    "generic": _parse_generic,
 }
 
 
@@ -341,7 +502,7 @@ def run_github_readme_discovery(sources: list[dict] | None = None) -> dict:
         if not parser_fn:
             log.error("[%s] Unknown parser: %s", source["name"], source["parser"])
             continue
-        jobs = parser_fn(readme, preferred_cities)
+        jobs = parser_fn(readme, preferred_cities, source)
         log.info("[%s] Parsed %d qualifying listings", source["name"], len(jobs))
         for j in jobs:
             j["_source_name"] = source["name"]

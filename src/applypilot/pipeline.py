@@ -72,8 +72,8 @@ def _run_discover(workers: int = 1) -> dict:
     # GitHub README: curated Canadian internship lists (highest signal, run first)
     console.print("  [cyan]GitHub README discovery...[/cyan]")
     try:
-        from applypilot.discovery.github_readme import run_github_readme_discovery
-        result = run_github_readme_discovery()
+        from applypilot.discovery.github_readme import get_active_sources, run_github_readme_discovery
+        result = run_github_readme_discovery(sources=get_active_sources())
         console.print(f"  [green]GitHub README:[/green] {result['inserted']} new, {result['pruned']} pruned")
         stats["github_readme"] = "ok"
     except Exception as e:

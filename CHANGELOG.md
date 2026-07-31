@@ -4,6 +4,16 @@ All notable changes to this project will be documented here.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/): [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [1.6.0] - 2026-07-30
+
+### Added
+- **User-managed GitHub README discovery sources** (`applypilot config sources`). The two built-in sources (`negarprh/Canadian-Tech-Internships-2026`, `hanzili/canada_sde_intern_position`) keep their bespoke, format-tailored parsers unchanged. New sources you add yourself (`--add owner/repo`) go through a new generic parser that auto-detects columns from the header row's own text (recognizing synonyms like company/employer, title/role/position, apply/link/application) instead of requiring a fixed column order, since most curated internship-list READMEs are a markdown table with these four fields in some order. `--enable`/`--disable` works on both built-in and user-added sources; `--remove` for user-added ones. Stored in `~/.applypilot/github_sources.yaml`, separate from the package so it survives `applypilot update`.
+- `discovery/github_readme.py`: `get_active_sources()` merges built-ins (minus any disabled) with enabled user-added sources, deriving each user source's raw/API URLs from an `owner/repo` shorthand.
+
+### Fixed
+- **`_extract_last_url()` didn't handle angle-bracket-wrapped markdown links** (`[Apply](<https://...>)`, a convention hanzili's README actually uses to stop certain renderers mangling special characters in URLs). Found while validating the new generic parser against real hanzili content: it returned zero jobs because every URL extraction silently failed. `_parse_hanzili` already had its own more permissive regex for this and was unaffected, but the shared helper (also used by `_parse_negarprh` and the new generic parser) didn't. Fixed to handle both conventions.
+- The module docstring in `github_readme.py` claimed sources could be extended "via searches.yaml `github_readme_sources`" -- that hook was never actually wired up; `pipeline.py` called the discovery function with zero arguments. Now genuinely true via `get_active_sources()`.
+
 ## [1.5.8] - 2026-07-30
 
 ### Fixed
