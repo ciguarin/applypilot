@@ -206,7 +206,7 @@ def _parse_negarprh(raw: str, preferred_cities: list[str] | None = None, source:
         cells = [c.strip() for c in line.split("|")[1:-1]]
         if not cells:
             continue
-        if "company" in cells[0].lower():
+        if cells[0].strip().lower() == "company":
             headers = [re.sub(r"[^a-z]", "", c.lower()) for c in cells]
             in_table = True
             continue
@@ -267,7 +267,7 @@ def _parse_hanzili(raw: str, preferred_cities: list[str] | None = None, source: 
         cells = [c.strip() for c in line.split("|")[1:-1]]
         if not cells:
             continue
-        if "title" in cells[0].lower():
+        if cells[0].strip().lower() == "title":
             headers = [re.sub(r"[^a-z]", "", c.lower()) for c in cells]
             in_table = True
             continue

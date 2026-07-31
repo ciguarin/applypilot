@@ -64,9 +64,18 @@ POLL_INTERVAL = config.DEFAULTS["poll_interval"]
 # text ("Thank You for applying", "Application Submitted", etc.); requiring
 # the quote marks is what actually distinguishes a reported page state from
 # a claimed one.
+#
+# The phrase list was too narrow: two real Workday confirmations (Generac,
+# Aquatic Informatics/Veralto) quoted "Congratulations! Thank you for your
+# application" and "Congratulations!" -- neither matched any phrase here, so
+# both got downgraded to failed:unverified_applied and then auto-retried
+# against a job that had already been submitted. "congratulations" and
+# "thank you for your application" cover Workday's standard success-page
+# wording without weakening the quote-mark requirement above.
 CONFIRMATION_PHRASE_RE = re.compile(
     r'["\'][^"\'\n]{0,100}'
-    r'(submitted successfully|successfully submitted|thank you for applying|application submitted|candidate home)'
+    r'(submitted successfully|successfully submitted|thank you for applying|application submitted|'
+    r'candidate home|congratulations|thank you for your application)'
     r'[^"\'\n]{0,100}["\']',
     re.I,
 )
@@ -794,6 +803,12 @@ PERMANENT_FAILURES: set[str] = {
     "not_a_job_application", "unsafe_permissions",
     "unsafe_verification", "sso_required",
     "site_blocked", "cloudflare_blocked", "blocked_by_cloudflare",
+    # Not a known-safe-to-retry failure -- it means the model claimed
+    # RESULT:APPLIED but the run couldn't independently confirm a
+    # confirmation page. Auto-retrying re-navigates to a form that may
+    # have already been submitted, risking a real duplicate application.
+    # Leave it in the manual queue instead of retrying blind.
+    "unverified_applied",
 }
 
 PERMANENT_PREFIXES: tuple[str, ...] = ("site_blocked", "cloudflare", "blocked_by")
