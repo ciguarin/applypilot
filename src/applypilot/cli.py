@@ -296,8 +296,14 @@ def status(
     _bootstrap()
 
     from applypilot.database import get_stats
+    from applypilot.apply.history import count_applications
 
     stats = get_stats()
+    # jobs.applied_at is disposable working state -- a DB reset during
+    # testing can erase it while the actual applications it recorded still
+    # happened. applications_log.jsonl is the durable record of what was
+    # actually confirmed, so it's the number reported here.
+    stats["applied"] = count_applications()
 
     console.print("\n[bold]ApplyPilot Pipeline Status[/bold]\n")
 

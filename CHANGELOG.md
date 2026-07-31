@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/): [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [1.7.0] - 2026-07-31
+
+### Added
+- **Durable, append-only application record** (`apply/history.py`, `~/.applypilot/applications_log.jsonl`), decoupled from `jobs.db`. Found while auditing v1.6.1's fallout: the DB is routinely wiped as part of the documented clean-restart sequence used during dev/testing, and that wipe silently destroyed the only record of real, already-submitted applications along with the disposable discovery/scoring/tailoring state it was meant to clear -- an inbox scan turned up 8 confirmed applications with zero trace left in the DB. A confirmed application isn't regenerable data like a job score is; it's the record of an irreversible action already taken against a real employer, so it now gets one JSON line appended to a file the reset sequence never touches, at the moment `mark_result()`/`mark_job()` confirm it. `applypilot status`'s "Applied" count now reads from this log instead of `jobs.apply_status`, and the log deliberately doesn't deduplicate on write -- a job legitimately resubmitted (the v1.6.1 bug, before it was fixed) shows up as multiple entries, so the raw log stays useful for investigating exactly this kind of gap in the future, while `count_applications()` still reports distinct jobs for the everyday number. Backfilled from the 22 rows `jobs.db` currently has marked `applied` so the log starts consistent with present reality rather than at zero.
+
 ## [1.6.1] - 2026-07-31
 
 ### Fixed

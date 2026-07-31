@@ -26,7 +26,7 @@ from rich.live import Live
 
 from applypilot import config
 from applypilot.database import get_connection
-from applypilot.apply import chrome, dashboard, prompt as prompt_mod
+from applypilot.apply import chrome, dashboard, history, prompt as prompt_mod
 from applypilot.apply.chrome import (
     launch_chrome, cleanup_worker, kill_all_chrome,
     reset_worker_dir, cleanup_on_exit, _kill_process_tree,
@@ -318,7 +318,7 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
 
 def mark_result(url: str, status: str, error: str | None = None,
                 permanent: bool = False, duration_ms: int | None = None,
-                task_id: str | None = None) -> None:
+                task_id: str | None = None, title: str | None = None) -> None:
     """Update a job's apply status in the database."""
     conn = get_connection()
     now = datetime.now(timezone.utc).isoformat()
@@ -330,6 +330,11 @@ def mark_result(url: str, status: str, error: str | None = None,
                            apply_failed_signature = NULL
             WHERE url = ?
         """, (now, duration_ms, task_id, url))
+        # jobs.db is disposable working state (see apply/history.py's
+        # docstring) -- log the confirmed result separately so a later DB
+        # reset can't silently erase the only record this application
+        # actually happened.
+        history.record_application(url, title, now, source="agent", task_id=task_id)
     else:
         attempts = 99 if permanent else "COALESCE(apply_attempts, 0) + 1"
         conn.execute(f"""
@@ -404,12 +409,14 @@ def mark_job(url: str, status: str, reason: str | None = None) -> None:
     conn = get_connection()
     now = datetime.now(timezone.utc).isoformat()
     if status == "applied":
+        title_row = conn.execute("SELECT title FROM jobs WHERE url = ?", (url,)).fetchone()
         conn.execute("""
             UPDATE jobs SET apply_status = 'applied', applied_at = ?,
                            apply_error = NULL, agent_id = NULL,
                            apply_failed_signature = NULL
             WHERE url = ?
         """, (now, url))
+        history.record_application(url, title_row[0] if title_row else None, now, source="manual")
     else:
         conn.execute("""
             UPDATE jobs SET apply_status = 'failed', apply_error = ?,
@@ -924,7 +931,7 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
                 add_event(f"[W{worker_id}] Skipped: {job['title'][:30]}")
                 continue
             elif result == "applied":
-                mark_result(job["url"], "applied", duration_ms=duration_ms)
+                mark_result(job["url"], "applied", duration_ms=duration_ms, title=job.get("title"))
                 applied += 1
                 update_state(worker_id, jobs_applied=applied,
                              jobs_done=applied + failed)
